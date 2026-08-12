@@ -113,3 +113,11 @@ test("keeps explicit bypasses and non-page links on their default path", () => {
     assert.equal(preview.nativeOpenCalls(), 0);
   }
 });
+
+test("dragging disables transform animation and iframe hit testing", () => {
+  const source = fs.readFileSync("arc-window-preview.user.js", "utf8");
+
+  assert.match(source, /\.panel\.dragging\s*\{[^}]*transition:\s*none/s);
+  assert.match(source, /\.panel\.dragging iframe\s*\{[^}]*pointer-events:\s*none/s);
+  assert.match(source, /dragFrame\s*=\s*requestAnimationFrame/);
+});

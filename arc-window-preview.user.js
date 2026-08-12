@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Arc Window Preview
 // @namespace    https://github.com/sanyi/userscripts
-// @version      0.2.1
+// @version      0.2.2
 // @description  Intercept page navigation and window.open, then preview them in an Arc-inspired iframe panel.
 // @author       sanyi
 // @match        http://*/*
@@ -25,6 +25,7 @@
   let currentUrl = "";
   let closeTimer = 0;
   let dragState = null;
+  let dragFrame = 0;
   let resizeState = null;
   let resizeFrame = 0;
   let maximized = false;
@@ -136,6 +137,11 @@
           will-change: width, height;
         }
         .panel.resizing iframe { pointer-events: none; }
+        .panel.dragging {
+          transition: none;
+          box-shadow: 0 24px 64px rgba(8, 12, 24, .24), 0 6px 20px rgba(8, 12, 24, .14);
+        }
+        .panel.dragging iframe { pointer-events: none; }
         .toolbar {
           display: grid;
           grid-template-columns: auto auto minmax(90px, 1fr) auto;
@@ -430,13 +436,21 @@
     if (maximized || event.button !== 0 || event.target.closest("button")) return;
     const toolbar = event.currentTarget;
     const style = getComputedStyle(panel);
+    const rect = panel.getBoundingClientRect();
+    const x = parseFloat(style.getPropertyValue("--x")) || 0;
+    const y = parseFloat(style.getPropertyValue("--y")) || 0;
     dragState = {
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
-      x: parseFloat(style.getPropertyValue("--x")) || 0,
-      y: parseFloat(style.getPropertyValue("--y")) || 0,
+      x,
+      y,
+      nextX: x,
+      nextY: y,
+      baseLeft: rect.left - x,
+      baseTop: rect.top - y,
     };
+    panel.classList.add("dragging");
     toolbar.classList.add("dragging");
     toolbar.setPointerCapture(event.pointerId);
     toolbar.addEventListener("pointermove", dragPanel);
@@ -446,17 +460,33 @@
 
   function dragPanel(event) {
     if (!dragState || event.pointerId !== dragState.pointerId) return;
-    const rect = panel.getBoundingClientRect();
     const nextX = dragState.x + event.clientX - dragState.startX;
     const nextY = dragState.y + event.clientY - dragState.startY;
-    const boundedX = Math.min(nextX, innerWidth - rect.left - 100);
-    const boundedY = Math.max(28 - rect.top, Math.min(nextY, innerHeight - rect.top - 60));
-    panel.style.setProperty("--x", `${boundedX}px`);
-    panel.style.setProperty("--y", `${boundedY}px`);
+    dragState.nextX = Math.min(nextX, innerWidth - dragState.baseLeft - 100);
+    dragState.nextY = Math.max(
+      28 - dragState.baseTop,
+      Math.min(nextY, innerHeight - dragState.baseTop - 60)
+    );
+    if (dragFrame) return;
+    dragFrame = requestAnimationFrame(() => {
+      dragFrame = 0;
+      if (!dragState) return;
+      panel.style.setProperty("--x", `${dragState.nextX}px`);
+      panel.style.setProperty("--y", `${dragState.nextY}px`);
+    });
   }
 
   function stopDrag(event) {
     const toolbar = event.currentTarget;
+    if (dragFrame) {
+      cancelAnimationFrame(dragFrame);
+      dragFrame = 0;
+    }
+    if (dragState) {
+      panel.style.setProperty("--x", `${dragState.nextX}px`);
+      panel.style.setProperty("--y", `${dragState.nextY}px`);
+    }
+    panel.classList.remove("dragging");
     toolbar.classList.remove("dragging");
     toolbar.removeEventListener("pointermove", dragPanel);
     dragState = null;

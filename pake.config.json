@@ -18,7 +18,7 @@
     "./multica-inbox-comment-tools.user.js",
     "./arc-window-preview.user.js"
   ],
-  "appVersion": "0.1.12",
+  "appVersion": "0.1.13",
   "targets": "app",
   "keepBinary": false
 }
