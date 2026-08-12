@@ -1,0 +1,24 @@
+{
+  "$schema": "https://raw.githubusercontent.com/tw93/Pake/main/schema/pake.schema.json",
+  "url": "https://multica.ai/zlc-devteam/inbox",
+  "name": "Multica",
+  "identifier": "ai.multica.desktop",
+  "title": "Multica",
+  "width": 1440,
+  "height": 960,
+  "minWidth": 960,
+  "minHeight": 640,
+  "hideTitleBar": false,
+  "newWindow": true,
+  "incognito": false,
+  "forceInternalNavigation": false,
+  "internalUrlRegex": "^https?:\\/\\/(?:[^/?#@]+\\.)*multica\\.ai(?::\\d+)?(?:[/?#]|$)",
+  "safeDomain": "multica.ai",
+  "inject": [
+    "./multica-inbox-comment-tools.user.js",
+    "./arc-window-preview.user.js"
+  ],
+  "appVersion": "0.1.12",
+  "targets": "app",
+  "keepBinary": false
+}

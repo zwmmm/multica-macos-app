@@ -1,0 +1,14 @@
+{
+  "name": "multica-macos-app",
+  "private": true,
+  "version": "0.1.12",
+  "description": "Multica macOS app packaged with Pake",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "build:app": "PAKE_CREATE_APP=1 npx --yes pake-cli --config pake.config.json",
+    "build:dmg": "npx --yes pake-cli --config pake.config.json --targets dmg"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
