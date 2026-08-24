@@ -1197,6 +1197,9 @@
     markPopover.querySelector(".mc-mark-quote-preview").textContent = mark.quote;
     markPopoverInput.value = mark.note;
     markPopover.hidden = false;
+    // The selectionchange from clearing the selection arrives after this and
+    // updateSelectionButton bails while the popover is open, so hide now.
+    hideSelectionButtons();
     positionMarkPopover();
     markPopoverInput.focus();
     markPopoverInput.select();
@@ -1441,66 +1444,109 @@
     return buildMarkComment(marks);
   }
 
-  // The comments API takes the issue UUID. The URL carries it directly when
-  // the page was opened from a list link (/issues/<uuid>) but rewrites to the
-  // human key (SCI-575) after redirect, so fall back to the UUID from the
-  // page's own most recent /api/issues/<uuid> call.
-  function findIssueUuid() {
-    const fromUrl = location.pathname.match(/\/issues\/([0-9a-f-]{36})/);
-    if (fromUrl) return fromUrl[1];
+  // The comments API rejects scripted POSTs (CSRF validation), and the page
+  // exposes no reusable request client, so sending drives the page's own
+  // comment composer instead.
+  function findCommentComposer() {
+    const editors = Array.from(
+      document.querySelectorAll('textarea, [contenteditable="true"], [contenteditable=""]')
+    ).filter((el) => el instanceof HTMLElement && !isUiNode(el) && isVisible(el));
+    if (editors.length === 0) return null;
 
-    let latest = "";
-    for (const entry of performance.getEntriesByType("resource")) {
-      const match = entry.name.match(/api\/issues\/([0-9a-f-]{36})/);
-      if (match) latest = match[1];
+    // Prefer an editor that sits near existing comments (the reply box).
+    const commentNodes = Array.from(document.querySelectorAll(`[id^="${COMMENT_ID_PREFIX}"]`));
+    let best = null;
+    let bestDistance = Infinity;
+    for (const editor of editors) {
+      const rect = editor.getBoundingClientRect();
+      const editorTop = rect.top;
+      let distance = editorTop;
+      for (const node of commentNodes) {
+        const nodeRect = node.getBoundingClientRect();
+        distance = Math.min(distance, Math.abs(nodeRect.bottom - editorTop));
+      }
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = editor;
+      }
     }
-    return latest;
+    return best;
   }
 
-  // Replies go under the last comment in the timeline (DOM order = display
-  // order; site comment nodes carry id="comment-<uuid>").
-  function findLastCommentId() {
-    const entries = getCommentEntries();
-    const last = entries.at(-1);
-    if (!last) return "";
-    return /^[0-9a-f-]{36}$/.test(last.id) ? last.id : "";
+  function isVisible(el) {
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 40 || rect.height < 16) return false;
+    return getComputedStyle(el).visibility !== "hidden";
+  }
+
+  function fillComposer(composer, text) {
+    if (composer instanceof HTMLTextAreaElement || composer instanceof HTMLInputElement) {
+      setNativeValue(composer, text);
+      return;
+    }
+
+    composer.focus();
+    try {
+      const dataTransfer = new DataTransfer();
+      dataTransfer.setData("text/plain", text);
+      composer.dispatchEvent(
+        new ClipboardEvent("paste", { clipboardData: dataTransfer, bubbles: true, cancelable: true })
+      );
+    } catch (_error) {
+      composer.textContent = text;
+    }
+    composer.dispatchEvent(new InputEvent("input", { bubbles: true }));
+  }
+
+  function setNativeValue(el, value) {
+    const setter = Object.getOwnPropertyDescriptor(el.constructor.prototype, "value")?.set;
+    if (setter) setter.call(el, value);
+    else el.value = value;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  const SUBMIT_TEXT_RE = /^(评论|回复|发送|提交|发表|留言|comment|reply|send|submit)$/i;
+
+  function submitComposer(composer) {
+    const scope = composer.closest("form") || document;
+    const buttons = Array.from(scope.querySelectorAll('button, [role="button"]')).filter((btn) => {
+      if (!(btn instanceof HTMLElement) || btn === composer || isUiNode(btn) || !isVisible(btn)) return false;
+      const label = normalizeText(btn.textContent);
+      if (!SUBMIT_TEXT_RE.test(label)) return false;
+      return true;
+    });
+    if (buttons.length === 0) {
+      const submitButtons = Array.from(scope.querySelectorAll('button[type="submit"], [role="button"][type="submit"]')).filter(
+        (btn) => btn instanceof HTMLElement && !isUiNode(btn) && isVisible(btn)
+      );
+      if (submitButtons.length === 0) return false;
+      submitButtons.at(-1).click();
+      return true;
+    }
+    buttons.at(-1).click();
+    return true;
   }
 
   async function sendMarkComment() {
     if (marks.length === 0) return;
 
-    const content = buildMarkCommentMarkdown();
-    const issueId = findIssueUuid();
-    if (!issueId) {
+    const markdown = buildMarkCommentMarkdown();
+    const composer = findCommentComposer();
+    if (!composer) {
       try {
-        await navigator.clipboard.writeText(content);
-        showToast("未找到任务 ID,内容已复制到剪贴板");
+        await navigator.clipboard.writeText(markdown);
+        showToast("未找到评论框,内容已复制到剪贴板");
       } catch (_error) {
-        showToast("未找到任务 ID,且复制失败");
+        showToast("未找到评论框,且复制失败");
       }
       return;
     }
 
-    const body = { content, type: "comment" };
-    const parentId = findLastCommentId();
-    if (parentId) body.parent_id = parentId;
-
-    try {
-      const response = await fetch(`https://api.multica.ai/api/issues/${issueId}/comments`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!response.ok) {
-        showToast(`发送失败 (HTTP ${response.status})`);
-        return;
-      }
-      showToast("评论已发送");
-      clearMarks();
-    } catch (_error) {
-      showToast("发送失败,请检查网络");
-    }
+    fillComposer(composer, markdown);
+    const submitted = submitComposer(composer);
+    showToast(submitted ? "评论已发送" : "已填入评论框,请手动发送");
+    if (submitted) clearMarks();
   }
 
   if (document.readyState === "loading") {

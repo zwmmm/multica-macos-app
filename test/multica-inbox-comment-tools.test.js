@@ -44,12 +44,15 @@ test("clicking an existing highlight reopens the note editor", () => {
   assert.match(source, /pendingMark = mark;\s*\n\s*openMarkEditor\(mark\)/);
 });
 
-test("sending a comment posts to the issue comments API", () => {
-  assert.match(source, /api\.multica\.ai\/api\/issues\/\$\{issueId\}\/comments/);
-  assert.match(source, /type: "comment"/);
-  assert.match(source, /findLastCommentId\(\)/);
-  assert.match(source, /body\.parent_id = parentId/);
-  assert.match(source, /showToast\("评论已发送"\);\s*\n\s*clearMarks\(\);/);
+test("sending drives the page comment composer", () => {
+  assert.match(source, /findCommentComposer\(\)/);
+  assert.match(source, /fillComposer\(composer, markdown\)/);
+  assert.match(source, /submitComposer\(composer\)/);
+  assert.match(source, /if \(submitted\) clearMarks\(\)/);
+});
+
+test("opening the mark editor hides the selection buttons", () => {
+  assert.match(source, /markPopover\.hidden = false;\s*\n\s*\/\/ The selectionchange[\s\S]*?hideSelectionButtons\(\);/);
 });
 
 test("hover cards expose edit and delete actions", () => {
