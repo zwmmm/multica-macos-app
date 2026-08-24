@@ -26,8 +26,8 @@ test("building the comment pairs each quote with its note", () => {
   );
 });
 
-test("popover textarea commits on Enter without shift", () => {
-  assert.match(source, /event\.key === "Enter" && !event\.shiftKey/);
+test("popover textarea commits on Cmd/Ctrl+Enter", () => {
+  assert.match(source, /event\.key === "Enter" && \(event\.metaKey \|\| event\.ctrlKey\)/);
   assert.match(source, /commitPendingMark\(\)/);
 });
 
@@ -44,8 +44,12 @@ test("clicking an existing highlight reopens the note editor", () => {
   assert.match(source, /pendingMark = mark;\s*\n\s*openMarkEditor\(mark\)/);
 });
 
-test("sending a comment clears every highlight", () => {
-  assert.match(source, /if \(submitted\) clearMarks\(\)/);
+test("sending a comment posts to the issue comments API", () => {
+  assert.match(source, /api\.multica\.ai\/api\/issues\/\$\{issueId\}\/comments/);
+  assert.match(source, /type: "comment"/);
+  assert.match(source, /findLastCommentId\(\)/);
+  assert.match(source, /body\.parent_id = parentId/);
+  assert.match(source, /showToast\("评论已发送"\);\s*\n\s*clearMarks\(\);/);
 });
 
 test("hover cards expose edit and delete actions", () => {
@@ -73,7 +77,10 @@ test("choice marks commit instantly with a preset note and green highlight", () 
 
 test("the choice button sits next to the mark button on selection", () => {
   assert.match(source, /id = "mc-choice-btn"/);
-  assert.match(source, /choiceBtn\.style\.left = `\$\{Math\.max\(8, Math\.min\(window\.innerWidth - 76, rect\.right \+ 19\)\)\}px`/);
+  // The pair is laid out relative to the mark button so the two can never
+  // collide when clamped against the viewport edge.
+  assert.match(source, /const selectionLeft = Math\.max\(8, Math\.min\(window\.innerWidth - 38, rect\.right - 15\)\)/);
+  assert.match(source, /rightLeft \+ 30 <= window\.innerWidth - 8[\s\S]*?choiceBtn\.style\.left = `\$\{rightLeft\}px`/);
   assert.match(source, /#mc-choice-btn\[hidden\][\s\S]*?display:\s*none/);
 });
 

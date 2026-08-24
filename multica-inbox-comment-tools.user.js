@@ -10,7 +10,6 @@
   const MARK_CLASS = "mc-mark";
   const RESCAN_DELAY_MS = 180;
   const HIGHLIGHT_MS = 2200;
-  const SUBMIT_TEXT_RE = /^(评论|回复|发送|提交|发表|留言|comment|reply|send|submit)$/i;
   const CHOICE_NOTE = "✅ 选择这个方案";
 
   let root;
@@ -361,17 +360,11 @@
         stroke-linejoin: round;
       }
 
-      #mc-choice-btn {
-        color: #4ade80;
-      }
-
-      #mc-choice-btn:hover {
-        border-color: rgb(74 222 128 / 0.5);
-        background: rgb(74 222 128 / 0.12);
-      }
-
       .mc-mark-popover {
-        width: min(340px, calc(100vw - 32px));
+        /* Fit content up to a cap; short quotes no longer stretch to full width. */
+        width: max-content;
+        min-width: 180px;
+        max-width: min(340px, calc(100vw - 32px));
         padding: 8px;
       }
 
@@ -396,7 +389,11 @@
 
       .mc-mark-popover textarea {
         display: block;
-        width: 100%;
+        /* The popover is max-content sized; the textarea's intrinsic cols
+           width would otherwise dominate it. Track the quote width instead. */
+        width: auto;
+        min-width: 100%;
+        max-width: min(322px, calc(100vw - 48px));
         height: 66px;
         padding: 6px 8px;
         border: 1px solid #3f3f46;
@@ -451,7 +448,9 @@
       .mc-mark-card-actions {
         position: absolute;
         right: 6px;
-        top: 5px;
+        /* Vertically centered on the first text line (16px line-height). */
+        top: 50%;
+        transform: translateY(-50%);
         display: flex;
         gap: 4px;
         opacity: 0;
@@ -721,9 +720,9 @@
     const quotePreview = document.createElement("blockquote");
     quotePreview.className = "mc-mark-quote-preview";
     markPopoverInput = document.createElement("textarea");
-    markPopoverInput.placeholder = "输入解释,回车发送标记…";
+    markPopoverInput.placeholder = "输入解释,⌘+回车发送标记…";
     markPopoverInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && !event.shiftKey) {
+      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
         event.preventDefault();
         commitPendingMark();
       } else if (event.key === "Escape") {
@@ -1122,14 +1121,23 @@
 
     const rect = pick.range.getBoundingClientRect();
     selectionBtn.hidden = false;
+    // The pair is laid out as one unit: selection first, choice beside it.
+    // Clamping each button independently lets them collide when a full-line
+    // selection pushes both against the viewport edge.
+    const top = `${Math.max(8, rect.top - 36)}px`;
+    const selectionLeft = Math.max(8, Math.min(window.innerWidth - 38, rect.right - 15));
+    selectionBtn.style.left = `${selectionLeft}px`;
+    selectionBtn.style.top = top;
     if (choiceBtn) {
-      // The pair sits side by side to the right of the selection end.
       choiceBtn.hidden = false;
-      choiceBtn.style.left = `${Math.max(8, Math.min(window.innerWidth - 76, rect.right + 19))}px`;
-      choiceBtn.style.top = `${Math.max(8, rect.top - 36)}px`;
+      choiceBtn.style.top = top;
+      const rightLeft = selectionLeft + 34;
+      if (rightLeft + 30 <= window.innerWidth - 8) {
+        choiceBtn.style.left = `${rightLeft}px`;
+      } else {
+        choiceBtn.style.left = `${Math.max(8, selectionLeft - 34)}px`;
+      }
     }
-    selectionBtn.style.left = `${Math.max(8, Math.min(window.innerWidth - 38, rect.right - 15))}px`;
-    selectionBtn.style.top = `${Math.max(8, rect.top - 36)}px`;
   }
 
   function pickSelectableRange(selection) {
@@ -1433,104 +1441,66 @@
     return buildMarkComment(marks);
   }
 
+  // The comments API takes the issue UUID. The URL carries it directly when
+  // the page was opened from a list link (/issues/<uuid>) but rewrites to the
+  // human key (SCI-575) after redirect, so fall back to the UUID from the
+  // page's own most recent /api/issues/<uuid> call.
+  function findIssueUuid() {
+    const fromUrl = location.pathname.match(/\/issues\/([0-9a-f-]{36})/);
+    if (fromUrl) return fromUrl[1];
+
+    let latest = "";
+    for (const entry of performance.getEntriesByType("resource")) {
+      const match = entry.name.match(/api\/issues\/([0-9a-f-]{36})/);
+      if (match) latest = match[1];
+    }
+    return latest;
+  }
+
+  // Replies go under the last comment in the timeline (DOM order = display
+  // order; site comment nodes carry id="comment-<uuid>").
+  function findLastCommentId() {
+    const entries = getCommentEntries();
+    const last = entries.at(-1);
+    if (!last) return "";
+    return /^[0-9a-f-]{36}$/.test(last.id) ? last.id : "";
+  }
+
   async function sendMarkComment() {
     if (marks.length === 0) return;
 
-    const markdown = buildMarkCommentMarkdown();
-    const composer = findCommentComposer();
-    if (!composer) {
+    const content = buildMarkCommentMarkdown();
+    const issueId = findIssueUuid();
+    if (!issueId) {
       try {
-        await navigator.clipboard.writeText(markdown);
-        showToast("未找到评论框,内容已复制到剪贴板");
+        await navigator.clipboard.writeText(content);
+        showToast("未找到任务 ID,内容已复制到剪贴板");
       } catch (_error) {
-        showToast("未找到评论框,且复制失败");
+        showToast("未找到任务 ID,且复制失败");
       }
       return;
     }
 
-    fillComposer(composer, markdown);
-    const submitted = submitComposer(composer);
-    showToast(submitted ? "评论已发送" : "已填入评论框,请手动发送");
-    if (submitted) clearMarks();
-  }
+    const body = { content, type: "comment" };
+    const parentId = findLastCommentId();
+    if (parentId) body.parent_id = parentId;
 
-  function findCommentComposer() {
-    const editors = Array.from(
-      document.querySelectorAll('textarea, [contenteditable="true"], [contenteditable=""]')
-    ).filter((el) => el instanceof HTMLElement && !isUiNode(el) && isVisible(el));
-    if (editors.length === 0) return null;
-
-    // Prefer an editor that sits near existing comments (the reply box).
-    const commentNodes = Array.from(document.querySelectorAll(`[id^="${COMMENT_ID_PREFIX}"]`));
-    let best = null;
-    let bestDistance = Infinity;
-    for (const editor of editors) {
-      const rect = editor.getBoundingClientRect();
-      const editorTop = rect.top;
-      let distance = editorTop;
-      for (const node of commentNodes) {
-        const nodeRect = node.getBoundingClientRect();
-        distance = Math.min(distance, Math.abs(nodeRect.bottom - editorTop));
-      }
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        best = editor;
-      }
-    }
-    return best;
-  }
-
-  function isVisible(el) {
-    const rect = el.getBoundingClientRect();
-    if (rect.width < 40 || rect.height < 16) return false;
-    return getComputedStyle(el).visibility !== "hidden";
-  }
-
-  function fillComposer(composer, text) {
-    if (composer instanceof HTMLTextAreaElement || composer instanceof HTMLInputElement) {
-      setNativeValue(composer, text);
-      return;
-    }
-
-    composer.focus();
     try {
-      const dataTransfer = new DataTransfer();
-      dataTransfer.setData("text/plain", text);
-      composer.dispatchEvent(
-        new ClipboardEvent("paste", { clipboardData: dataTransfer, bubbles: true, cancelable: true })
-      );
+      const response = await fetch(`https://api.multica.ai/api/issues/${issueId}/comments`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) {
+        showToast(`发送失败 (HTTP ${response.status})`);
+        return;
+      }
+      showToast("评论已发送");
+      clearMarks();
     } catch (_error) {
-      composer.textContent = text;
+      showToast("发送失败,请检查网络");
     }
-    composer.dispatchEvent(new InputEvent("input", { bubbles: true }));
-  }
-
-  function setNativeValue(el, value) {
-    const setter = Object.getOwnPropertyDescriptor(el.constructor.prototype, "value")?.set;
-    if (setter) setter.call(el, value);
-    else el.value = value;
-    el.dispatchEvent(new Event("input", { bubbles: true }));
-    el.dispatchEvent(new Event("change", { bubbles: true }));
-  }
-
-  function submitComposer(composer) {
-    const scope = composer.closest("form") || document;
-    const buttons = Array.from(scope.querySelectorAll('button, [role="button"]')).filter((btn) => {
-      if (!(btn instanceof HTMLElement) || btn === composer || isUiNode(btn) || !isVisible(btn)) return false;
-      const label = normalizeText(btn.textContent);
-      if (!SUBMIT_TEXT_RE.test(label)) return false;
-      return true;
-    });
-    if (buttons.length === 0) {
-      const submitButtons = Array.from(scope.querySelectorAll('button[type="submit"], [role="button"][type="submit"]')).filter(
-        (btn) => btn instanceof HTMLElement && !isUiNode(btn) && isVisible(btn)
-      );
-      if (submitButtons.length === 0) return false;
-      submitButtons.at(-1).click();
-      return true;
-    }
-    buttons.at(-1).click();
-    return true;
   }
 
   if (document.readyState === "loading") {
