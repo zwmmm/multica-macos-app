@@ -5,6 +5,8 @@
 内置功能：
 
 - Multica Inbox 评论辅助工具
+- Issue 详情页划词标记：选中文字后点标记 icon,在选区上方输入解释,回车生成高亮标注
+- 标记可累积,点悬浮 send icon 一键组装「引用 + 解释」发送为评论
 - Arc 风格的新窗口链接预览
 - 普通链接保持默认跳转
 - 拦截 `target="_blank"`、`window.open`、Command/Ctrl/Shift 点击和中键点击

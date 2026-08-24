@@ -10,13 +10,15 @@
   "minHeight": 640,
   "hideTitleBar": false,
   "newWindow": true,
+  "multiWindow": true,
+  "macTabbingId": "multica",
   "incognito": false,
   "forceInternalNavigation": false,
   "internalUrlRegex": "^https?:\\/\\/(?:[^/?#@]+\\.)*multica\\.ai(?::\\d+)?(?:[/?#]|$)",
   "safeDomain": "multica.ai",
   "inject": [
     "./multica-inbox-comment-tools.user.js",
-    "./arc-window-preview.user.js"
+    "./multica-workspace-title.user.js"
   ],
   "appVersion": "0.1.13",
   "targets": "app",

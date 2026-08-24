@@ -7,8 +7,11 @@
   const ROOT_ID = "mc-comment-tools";
   const STYLE_ID = "mc-comment-tools-style";
   const COMMENT_ID_PREFIX = "comment-";
+  const MARK_CLASS = "mc-mark";
   const RESCAN_DELAY_MS = 180;
   const HIGHLIGHT_MS = 2200;
+  const SUBMIT_TEXT_RE = /^(评论|回复|发送|提交|发表|留言|comment|reply|send|submit)$/i;
+  const CHOICE_NOTE = "✅ 选择这个方案";
 
   let root;
   let timelineList;
@@ -20,6 +23,20 @@
   let rescanTimer = 0;
   let activeCommentId = "";
   let lastIssueKey = "";
+  let marks = [];
+  let pendingMark = null;
+  let lastSelection = null;
+  let markSeq = 0;
+  let marksPageKey = "__unset__";
+  let selectionBtn;
+  let choiceBtn;
+  let markPopover;
+  let markPopoverInput;
+  let markCardsLayer;
+  let sendButton;
+  let toastNode;
+  let selectionTimer = 0;
+  let toastTimer = 0;
 
   function install() {
     injectStyle();
@@ -101,6 +118,10 @@
 
       .mc-timeline-trigger {
         bottom: 123px;
+      }
+
+      .mc-mark-send {
+        bottom: 171px;
       }
 
       .mc-tools-btn:hover {
@@ -288,6 +309,250 @@
         transition: background-color 180ms ease !important;
       }
 
+      #mc-selection-btn,
+      #mc-choice-btn,
+      .mc-mark-popover,
+      .mc-mark-cards {
+        position: fixed;
+        /* Above page dialogs (md preview modal) that stack near the top. */
+        z-index: 2147483600;
+        pointer-events: auto;
+        border: 1px solid #27272a;
+        border-radius: 10px;
+        background: #18181B;
+        box-shadow: 0 14px 40px rgb(15 23 42 / 0.2);
+        backdrop-filter: blur(10px);
+        font-family: var(--font-inter);
+      }
+
+      #mc-selection-btn,
+      #mc-choice-btn {
+        width: 30px;
+        height: 30px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        cursor: pointer;
+        color: #e4e4e7;
+      }
+
+      #mc-selection-btn:hover,
+      #mc-choice-btn:hover {
+        border-color: #3f3f46;
+        background: #27272a;
+      }
+
+      /* Author display rules override the UA [hidden] default, so hide explicitly. */
+      #mc-selection-btn[hidden],
+      #mc-choice-btn[hidden],
+      .mc-tools-btn[hidden],
+      .mc-mark-card[hidden] {
+        display: none;
+      }
+
+      #mc-selection-btn svg,
+      #mc-choice-btn svg {
+        width: 15px;
+        height: 15px;
+        stroke: currentColor;
+        stroke-width: 2;
+        fill: none;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      #mc-choice-btn {
+        color: #4ade80;
+      }
+
+      #mc-choice-btn:hover {
+        border-color: rgb(74 222 128 / 0.5);
+        background: rgb(74 222 128 / 0.12);
+      }
+
+      .mc-mark-popover {
+        width: min(340px, calc(100vw - 32px));
+        padding: 8px;
+      }
+
+      .mc-mark-popover[hidden] {
+        display: none;
+      }
+
+      .mc-mark-popover blockquote {
+        margin: 0 0 8px;
+        padding: 6px 8px;
+        border-left: 3px solid #d97706;
+        border-radius: 4px;
+        background: rgb(217 119 6 / 0.1);
+        color: #d4d4d8;
+        font-size: 12px;
+        line-height: 17px;
+        max-height: 66px;
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .mc-mark-popover textarea {
+        display: block;
+        width: 100%;
+        height: 66px;
+        padding: 6px 8px;
+        border: 1px solid #3f3f46;
+        border-radius: 6px;
+        background: #09090B;
+        color: #f4f4f5;
+        font-family: inherit;
+        font-size: 12px;
+        line-height: 17px;
+        resize: none;
+        outline: none;
+      }
+
+      .mc-mark-popover textarea:focus {
+        border-color: #2563eb;
+      }
+
+      .mc-mark-cards {
+        pointer-events: none;
+        border: 0;
+        background: transparent;
+        box-shadow: none;
+        backdrop-filter: none;
+      }
+
+      .mc-mark-card {
+        position: absolute;
+        width: 232px;
+        /* Right padding leaves room for the hover action buttons. */
+        padding: 6px 52px 6px 9px;
+        border: 1px solid rgb(217 119 6 / 0.5);
+        border-radius: 8px;
+        background: rgb(217 119 6 / 0.94);
+        color: #1c1917;
+        font-size: 11px;
+        line-height: 16px;
+        box-shadow: 0 6px 18px rgb(0 0 0 / 0.14);
+        cursor: default;
+        pointer-events: auto;
+      }
+
+      .mc-mark-card .mc-mark-card-quote {
+        margin-bottom: 3px;
+        color: rgb(28 25 23 / 0.72);
+        overflow: hidden;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+      }
+
+      .mc-mark-card-actions {
+        position: absolute;
+        right: 6px;
+        top: 5px;
+        display: flex;
+        gap: 4px;
+        opacity: 0;
+        transition: opacity 120ms ease;
+      }
+
+      .mc-mark-card:hover .mc-mark-card-actions,
+      .mc-mark-card:focus-within .mc-mark-card-actions {
+        opacity: 1;
+      }
+
+      .mc-mark-card-btn {
+        width: 20px;
+        height: 20px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 0;
+        border-radius: 5px;
+        background: rgb(28 25 23 / 0.85);
+        color: #fef3c7;
+        cursor: pointer;
+        padding: 0;
+      }
+
+      .mc-mark-card-btn:hover {
+        background: #1c1917;
+      }
+
+      .mc-mark-card-btn svg {
+        width: 11px;
+        height: 11px;
+        stroke: currentColor;
+        stroke-width: 2;
+        fill: none;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .mc-mark-send-btn {
+        position: absolute;
+        right: -30px;
+        bottom: 0;
+        width: 24px;
+        height: 24px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid #27272a;
+        border-radius: 999px;
+        background: #18181B;
+        color: #e4e4e7;
+        cursor: pointer;
+      }
+
+      .mc-mark-send-btn:hover {
+        background: #27272a;
+      }
+
+      .mc-mark-send-btn svg {
+        width: 13px;
+        height: 13px;
+        stroke: currentColor;
+        stroke-width: 2;
+        fill: none;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      #mc-toast {
+        position: fixed;
+        left: 50%;
+        bottom: 34px;
+        transform: translateX(-50%) translateY(8px);
+        z-index: 2147483601;
+        padding: 8px 14px;
+        border: 1px solid #27272a;
+        border-radius: 8px;
+        background: #18181B;
+        color: #f4f4f5;
+        font-family: var(--font-inter);
+        font-size: 12px;
+        opacity: 0;
+        transition: opacity 160ms ease, transform 160ms ease;
+        pointer-events: none;
+      }
+
+      #mc-toast[data-show] {
+        opacity: 1;
+        transform: translateX(-50%);
+      }
+
+      mark.mc-mark {
+        background-color: rgb(250 204 21 / 0.5);
+        color: inherit;
+      }
+
+      mark.mc-mark.mc-mark-choice {
+        background-color: rgb(74 222 128 / 0.45);
+      }
+
       @media (prefers-color-scheme: dark) {
         #${ROOT_ID} {
           color: #e5e7eb;
@@ -349,6 +614,10 @@
 
         .mc-timeline-trigger {
           bottom: 124px;
+        }
+
+        .mc-mark-send {
+          bottom: 172px;
         }
 
         .mc-timeline {
@@ -423,8 +692,69 @@
     bottomButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"></path><path d="m19 12-7 7-7-7"></path></svg>';
     bottomButton.addEventListener("click", scrollToBottom);
 
-    root.append(timelinePanel, timelineButton, bottomButton);
+    markCardsLayer = document.createElement("div");
+    markCardsLayer.className = "mc-mark-cards";
+
+    selectionBtn = document.createElement("button");
+    selectionBtn.id = "mc-selection-btn";
+    selectionBtn.type = "button";
+    selectionBtn.hidden = true;
+    selectionBtn.title = "标记选中文字";
+    selectionBtn.setAttribute("aria-label", "标记选中文字");
+    selectionBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>';
+    selectionBtn.addEventListener("mousedown", (event) => event.preventDefault());
+    selectionBtn.addEventListener("click", openMarkPopover);
+
+    choiceBtn = document.createElement("button");
+    choiceBtn.id = "mc-choice-btn";
+    choiceBtn.type = "button";
+    choiceBtn.hidden = true;
+    choiceBtn.title = "选择这个方案";
+    choiceBtn.setAttribute("aria-label", "选择这个方案");
+    choiceBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>';
+    choiceBtn.addEventListener("mousedown", (event) => event.preventDefault());
+    choiceBtn.addEventListener("click", commitChoiceMark);
+
+    markPopover = document.createElement("div");
+    markPopover.className = "mc-mark-popover";
+    markPopover.hidden = true;
+    const quotePreview = document.createElement("blockquote");
+    quotePreview.className = "mc-mark-quote-preview";
+    markPopoverInput = document.createElement("textarea");
+    markPopoverInput.placeholder = "输入解释,回车发送标记…";
+    markPopoverInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        commitPendingMark();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        cancelPendingMark();
+      }
+    });
+    markPopover.append(quotePreview, markPopoverInput);
+    document.addEventListener("pointerdown", handlePopoverDismiss, true);
+
+    sendButton = document.createElement("button");
+    sendButton.className = "mc-tools-btn mc-mark-send";
+    sendButton.type = "button";
+    sendButton.hidden = true;
+    sendButton.title = "发送标记评论";
+    sendButton.setAttribute("aria-label", "发送标记评论");
+    sendButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"></path><path d="M22 2 11 13"></path></svg>';
+    sendButton.addEventListener("click", sendMarkComment);
+
+    toastNode = document.createElement("div");
+    toastNode.id = "mc-toast";
+    toastNode.setAttribute("role", "status");
+
+    root.append(timelinePanel, timelineButton, bottomButton, markCardsLayer, selectionBtn, choiceBtn, markPopover, sendButton);
     document.body.appendChild(root);
+    document.body.appendChild(toastNode);
+
+    document.addEventListener("selectionchange", scheduleSelectionCheck);
+    document.addEventListener("scroll", positionMarkOverlays, true);
+    document.addEventListener("click", handleMarkClick, true);
+    window.addEventListener("resize", positionMarkOverlays);
   }
 
   function scheduleRescan() {
@@ -435,21 +765,29 @@
   function rescan() {
     if (!timelineList) return;
 
-    if (!isIssueDetailPage()) {
+    if (!isMarkablePage()) {
       resetIssueTools();
       return;
     }
 
     if (root) root.hidden = false;
 
+    const pageKey = getIssueKeyFromUrl(location.href);
+    if (pageKey !== marksPageKey) {
+      marksPageKey = pageKey;
+      clearMarks();
+    }
+
     const comments = getCommentEntries();
 
     const hasComments = comments.length > 0;
     timelineButton.hidden = !hasComments;
     bottomButton.hidden = false;
+    sendButton.hidden = marks.length === 0;
     timelinePanel.hidden = collapsed || !hasComments;
     countNode.textContent = String(comments.length);
     renderTimeline(comments);
+    positionMarkOverlays();
   }
 
   function resetIssueTools() {
@@ -460,21 +798,23 @@
     if (timelineList) timelineList.replaceChildren();
     if (countNode) countNode.textContent = "0";
     activeCommentId = "";
+    clearMarks();
   }
 
-  function isIssueDetailPage() {
-    return isIssueDetailUrl(location.href);
-  }
-
-  function isIssueDetailUrl(url) {
-    return Boolean(getIssueKeyFromUrl(url));
+  function isMarkablePage() {
+    return Boolean(getIssueKeyFromUrl(location.href));
   }
 
   function getIssueKeyFromUrl(url) {
     try {
       const parsedUrl = new URL(url, location.origin);
-      const pathIssueKey = parsedUrl.pathname.match(/\/issues\/([^/?#]+)/)?.[1] || "";
-      return parsedUrl.searchParams.get("issue")?.trim() || pathIssueKey;
+      const issueKey = parsedUrl.searchParams.get("issue")?.trim() ||
+        parsedUrl.pathname.match(/\/issues\/([^/?#]+)/)?.[1] || "";
+      if (issueKey) return issueKey;
+      if (/\/chat(\/|$)/.test(parsedUrl.pathname)) {
+        return `chat:${parsedUrl.searchParams.get("session")?.trim() || ""}`;
+      }
+      return "";
     } catch (_error) {
       return "";
     }
@@ -752,6 +1092,450 @@
     return /^(copy|edit|delete|resolve|unresolve|reply|save|cancel|more|复制|编辑|删除|回复|保存|取消|更多|解决|取消解决)$/i.test(
       text
     );
+  }
+
+  function hideSelectionButtons() {
+    if (selectionBtn) selectionBtn.hidden = true;
+    if (choiceBtn) choiceBtn.hidden = true;
+  }
+
+  function scheduleSelectionCheck() {
+    window.clearTimeout(selectionTimer);
+    selectionTimer = window.setTimeout(updateSelectionButton, 140);
+  }
+
+  function updateSelectionButton() {
+    if (!selectionBtn) return;
+    if (markPopover && !markPopover.hidden) return;
+    if (!isMarkablePage()) {
+      hideSelectionButtons();
+      return;
+    }
+
+    const selection = document.getSelection();
+    const pick = pickSelectableRange(selection);
+    lastSelection = pick;
+    if (!pick) {
+      hideSelectionButtons();
+      return;
+    }
+
+    const rect = pick.range.getBoundingClientRect();
+    selectionBtn.hidden = false;
+    if (choiceBtn) {
+      // The pair sits side by side to the right of the selection end.
+      choiceBtn.hidden = false;
+      choiceBtn.style.left = `${Math.max(8, Math.min(window.innerWidth - 76, rect.right + 19))}px`;
+      choiceBtn.style.top = `${Math.max(8, rect.top - 36)}px`;
+    }
+    selectionBtn.style.left = `${Math.max(8, Math.min(window.innerWidth - 38, rect.right - 15))}px`;
+    selectionBtn.style.top = `${Math.max(8, rect.top - 36)}px`;
+  }
+
+  function pickSelectableRange(selection) {
+    if (!selection || selection.rangeCount === 0) return null;
+    if (selection.isCollapsed) return null;
+
+    const range = selection.getRangeAt(0);
+    if (!range.commonAncestorContainer) return null;
+
+    const holder = nodeAsElement(range.commonAncestorContainer);
+    if (!holder) return null;
+    if (isUiNode(holder) || !isMarkablePage()) return null;
+    if (holder.closest("input, textarea, [contenteditable]")) return null;
+
+    const text = normalizeText(range.toString());
+    if (!text || text.length < 2 || text.length > 1200) return null;
+
+    const rect = range.getBoundingClientRect();
+    if (!rect || (rect.width === 0 && rect.height === 0)) return null;
+
+    return { range, rect, text };
+  }
+
+  function nodeAsElement(node) {
+    return node instanceof Element ? node : node.parentElement;
+  }
+
+  function isUiNode(node) {
+    return Boolean(node && node.closest(`#${ROOT_ID}, #mc-toast`));
+  }
+
+  function openMarkPopover() {
+    if (pendingMark) return;
+
+    if (!lastSelection) {
+      // The selection was cleared (e.g. by the button click); restore it.
+      const selection = document.getSelection();
+      const pick = pickSelectableRange(selection);
+      if (!pick) {
+        selectionBtn.hidden = true;
+        return;
+      }
+      lastSelection = pick;
+    }
+
+    // Highlight immediately on click; the note is edited afterwards.
+    const mark = createMark(lastSelection, "");
+    lastSelection = null;
+    if (!mark) return;
+    document.getSelection()?.removeAllRanges();
+
+    pendingMark = mark;
+    openMarkEditor(mark);
+  }
+
+  function openMarkEditor(mark) {
+    markPopover.querySelector(".mc-mark-quote-preview").textContent = mark.quote;
+    markPopoverInput.value = mark.note;
+    markPopover.hidden = false;
+    positionMarkPopover();
+    markPopoverInput.focus();
+    markPopoverInput.select();
+  }
+
+  function positionMarkPopover() {
+    if (!pendingMark?.node?.isConnected) return;
+    const rect = pendingMark.node.getBoundingClientRect();
+    const width = Math.min(340, window.innerWidth - 32);
+    const anchorLeft = rect.left + rect.width / 2;
+    const left = Math.max(
+      8,
+      Math.min(window.innerWidth - width - 8, anchorLeft - width / 2)
+    );
+    // centerTop: horizontally centered on the highlight, popover above it.
+    markPopover.style.left = `${Math.round(left)}px`;
+    markPopover.style.top = `${Math.max(8, Math.round(rect.top) - markPopover.offsetHeight - 10)}px`;
+  }
+
+  function handlePopoverDismiss(event) {
+    if (markPopover.hidden || !pendingMark) return;
+    if (event.target instanceof Node && event.target.closest(markPopover)) return;
+    if (event.target === selectionBtn) return;
+    cancelPendingMark();
+  }
+
+  function cancelPendingMark() {
+    if (!pendingMark) return;
+    // A never-noted mark is discarded; an existing one only closes the editor.
+    if (!pendingMark.note) removeMark(pendingMark);
+    pendingMark = null;
+    markPopover.hidden = true;
+    hideSelectionButtons();
+  }
+
+  function commitPendingMark() {
+    if (!pendingMark) return;
+    const note = markPopoverInput.value.trim();
+    if (!note) {
+      // Empty note deletes the highlight instead of keeping a bare mark.
+      cancelPendingMark();
+      return;
+    }
+
+    pendingMark.note = note;
+    renderMarkCard(pendingMark);
+    pendingMark = null;
+    markPopover.hidden = true;
+    selectionBtn.hidden = true;
+    positionMarkCards();
+  }
+
+  function commitChoiceMark() {
+    if (pendingMark) return;
+    if (!lastSelection) {
+      const selection = document.getSelection();
+      const pick = pickSelectableRange(selection);
+      if (!pick) {
+        hideSelectionButtons();
+        return;
+      }
+      lastSelection = pick;
+    }
+
+    const mark = createMark(lastSelection, CHOICE_NOTE);
+    lastSelection = null;
+    if (!mark) return;
+    mark.node.classList.add("mc-mark-choice");
+    document.getSelection()?.removeAllRanges();
+    hideSelectionButtons();
+    renderMarkCard(mark);
+  }
+
+  function removeMark(mark) {
+    if (mark.node instanceof Element && mark.node.isConnected) unwrapMarkNode(mark.node);
+    mark.card?.remove();
+    const index = marks.indexOf(mark);
+    if (index >= 0) marks.splice(index, 1);
+    if (sendButton) sendButton.hidden = marks.length === 0;
+  }
+
+  function createMark(pick, note) {
+    const range = pick.range;
+    if (
+      !(range.startContainer instanceof Node) || !range.startContainer.isConnected ||
+      !(range.endContainer instanceof Node) || !range.endContainer.isConnected
+    ) {
+      showToast("页面内容已变化,标记失败");
+      return null;
+    }
+
+    // extractContents + insert handles selections that cross element boundaries.
+    const wrapper = makeMarkWrapper();
+    try {
+      wrapper.appendChild(range.extractContents());
+      range.insertNode(wrapper);
+    } catch (_error) {
+      showToast("标记插入失败");
+      return null;
+    }
+
+    markSeq += 1;
+    const mark = {
+      id: `mc-mark-${markSeq}`,
+      note,
+      quote: pick.text,
+      node: wrapper,
+    };
+    marks.push(mark);
+    if (sendButton) sendButton.hidden = false;
+
+    return mark;
+  }
+
+  function makeMarkWrapper() {
+    const wrapper = document.createElement("mark");
+    wrapper.className = MARK_CLASS;
+    wrapper.title = "点击编辑标记";
+    return wrapper;
+  }
+
+  function handleMarkClick(event) {
+    if (pendingMark) return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const node = target.closest(`mark.${MARK_CLASS}`);
+    if (!node || isUiNode(node)) return;
+    const mark = marks.find((entry) => entry.node === node);
+    if (!mark) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    pendingMark = mark;
+    openMarkEditor(mark);
+  }
+
+  function renderMarkCard(mark) {
+    if (!markCardsLayer) return;
+    // Re-committing an edited mark replaces its card instead of stacking one.
+    mark.card?.remove();
+
+    const card = document.createElement("div");
+    card.className = "mc-mark-card";
+    card.dataset.markId = mark.id;
+
+    const quote = document.createElement("div");
+    quote.className = "mc-mark-card-quote";
+    quote.textContent = mark.quote;
+    quote.title = mark.quote;
+
+    const note = document.createElement("div");
+    note.className = "mc-mark-card-note";
+    note.textContent = mark.note;
+    note.title = mark.note;
+
+    const actions = document.createElement("div");
+    actions.className = "mc-mark-card-actions";
+    actions.append(createCardAction("edit", mark), createCardAction("delete", mark));
+
+    card.append(quote, note, actions);
+    markCardsLayer.appendChild(card);
+    mark.card = card;
+    positionMarkCards();
+  }
+
+  function createCardAction(action, mark) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `mc-mark-card-btn mc-mark-card-${action}`;
+    const label = action === "edit" ? "编辑标记" : "删除标记";
+    button.title = label;
+    button.setAttribute("aria-label", label);
+    button.innerHTML =
+      action === "edit"
+        ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>'
+        : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"></path><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path></svg>';
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (action === "edit") {
+        if (pendingMark && pendingMark !== mark) cancelPendingMark();
+        pendingMark = mark;
+        openMarkEditor(mark);
+      } else {
+        removeMark(mark);
+      }
+    });
+    return button;
+  }
+
+  function positionMarkOverlays() {
+    if (markPopover && !markPopover.hidden && pendingMark) {
+      positionMarkPopover();
+    }
+    positionMarkCards();
+  }
+
+  function positionMarkCards() {
+    if (!markCardsLayer) return;
+    for (const mark of marks) {
+      if (!mark.card) continue;
+      mark.card.hidden = !mark.node.isConnected;
+      if (!mark.node.isConnected) continue;
+      const rect = mark.node.getBoundingClientRect();
+      mark.card.style.left = `${Math.round(
+        Math.max(8, Math.min(window.innerWidth - 240, rect.left + rect.width / 2 - 116))
+      )}px`;
+      mark.card.style.top = `${Math.round(Math.max(8, rect.top - mark.card.offsetHeight - 8))}px`;
+    }
+  }
+
+  function showToast(message) {
+    if (!toastNode) return;
+    toastNode.textContent = message;
+    toastNode.setAttribute("data-show", "");
+    window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => toastNode.removeAttribute("data-show"), 1800);
+  }
+
+  function clearMarks() {
+    for (const mark of marks) {
+      if (mark.node instanceof Element && mark.node.isConnected) unwrapMarkNode(mark.node);
+      mark.card?.remove();
+    }
+    marks = [];
+    pendingMark = null;
+    if (markCardsLayer) markCardsLayer.replaceChildren();
+    if (markPopover) markPopover.hidden = true;
+    hideSelectionButtons();
+    if (sendButton) sendButton.hidden = true;
+  }
+
+  function unwrapMarkNode(node) {
+    const parent = node.parentNode;
+    if (!parent) return;
+    while (node.firstChild) parent.insertBefore(node.firstChild, node);
+    parent.removeChild(node);
+    parent.normalize();
+  }
+
+  function buildMarkComment(entries) {
+    return entries
+      .map((entry) => `> ${entry.quote}\n${entry.note}`)
+      .join("\n\n---\n\n");
+  }
+
+  function buildMarkCommentMarkdown() {
+    return buildMarkComment(marks);
+  }
+
+  async function sendMarkComment() {
+    if (marks.length === 0) return;
+
+    const markdown = buildMarkCommentMarkdown();
+    const composer = findCommentComposer();
+    if (!composer) {
+      try {
+        await navigator.clipboard.writeText(markdown);
+        showToast("未找到评论框,内容已复制到剪贴板");
+      } catch (_error) {
+        showToast("未找到评论框,且复制失败");
+      }
+      return;
+    }
+
+    fillComposer(composer, markdown);
+    const submitted = submitComposer(composer);
+    showToast(submitted ? "评论已发送" : "已填入评论框,请手动发送");
+    if (submitted) clearMarks();
+  }
+
+  function findCommentComposer() {
+    const editors = Array.from(
+      document.querySelectorAll('textarea, [contenteditable="true"], [contenteditable=""]')
+    ).filter((el) => el instanceof HTMLElement && !isUiNode(el) && isVisible(el));
+    if (editors.length === 0) return null;
+
+    // Prefer an editor that sits near existing comments (the reply box).
+    const commentNodes = Array.from(document.querySelectorAll(`[id^="${COMMENT_ID_PREFIX}"]`));
+    let best = null;
+    let bestDistance = Infinity;
+    for (const editor of editors) {
+      const rect = editor.getBoundingClientRect();
+      const editorTop = rect.top;
+      let distance = editorTop;
+      for (const node of commentNodes) {
+        const nodeRect = node.getBoundingClientRect();
+        distance = Math.min(distance, Math.abs(nodeRect.bottom - editorTop));
+      }
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = editor;
+      }
+    }
+    return best;
+  }
+
+  function isVisible(el) {
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 40 || rect.height < 16) return false;
+    return getComputedStyle(el).visibility !== "hidden";
+  }
+
+  function fillComposer(composer, text) {
+    if (composer instanceof HTMLTextAreaElement || composer instanceof HTMLInputElement) {
+      setNativeValue(composer, text);
+      return;
+    }
+
+    composer.focus();
+    try {
+      const dataTransfer = new DataTransfer();
+      dataTransfer.setData("text/plain", text);
+      composer.dispatchEvent(
+        new ClipboardEvent("paste", { clipboardData: dataTransfer, bubbles: true, cancelable: true })
+      );
+    } catch (_error) {
+      composer.textContent = text;
+    }
+    composer.dispatchEvent(new InputEvent("input", { bubbles: true }));
+  }
+
+  function setNativeValue(el, value) {
+    const setter = Object.getOwnPropertyDescriptor(el.constructor.prototype, "value")?.set;
+    if (setter) setter.call(el, value);
+    else el.value = value;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function submitComposer(composer) {
+    const scope = composer.closest("form") || document;
+    const buttons = Array.from(scope.querySelectorAll('button, [role="button"]')).filter((btn) => {
+      if (!(btn instanceof HTMLElement) || btn === composer || isUiNode(btn) || !isVisible(btn)) return false;
+      const label = normalizeText(btn.textContent);
+      if (!SUBMIT_TEXT_RE.test(label)) return false;
+      return true;
+    });
+    if (buttons.length === 0) {
+      const submitButtons = Array.from(scope.querySelectorAll('button[type="submit"], [role="button"][type="submit"]')).filter(
+        (btn) => btn instanceof HTMLElement && !isUiNode(btn) && isVisible(btn)
+      );
+      if (submitButtons.length === 0) return false;
+      submitButtons.at(-1).click();
+      return true;
+    }
+    buttons.at(-1).click();
+    return true;
   }
 
   if (document.readyState === "loading") {
