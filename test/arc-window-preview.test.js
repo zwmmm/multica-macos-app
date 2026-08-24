@@ -50,7 +50,7 @@ function loadPreviewScript() {
 
 function createClick(overrides = {}) {
   const anchor = Object.assign(new TestAnchorElement(), {
-    href: "https://example.com/page",
+    href: overrides.href || "https://multica.ai/zlc-devteam/issues/SCI-1",
     hasAttribute(name) {
       return name === "download" && Boolean(overrides.download);
     },
@@ -104,8 +104,21 @@ test("keeps explicit bypasses and non-page links on their default path", () => {
   for (const event of [
     createClick({ event: { altKey: true } }),
     createClick({ download: true }),
-    createClick({ anchor: { href: "mailto:hello@example.com" } }),
+    createClick({ href: "mailto:hello@example.com" }),
     createClick({ event: { button: 2 } }),
+  ]) {
+    const preview = loadPreviewScript();
+    preview.click(event);
+    assert.equal(event.defaultPrevented, undefined);
+    assert.equal(preview.nativeOpenCalls(), 0);
+  }
+});
+
+test("keeps non-multica links on their default path", () => {
+  for (const event of [
+    createClick({ anchor: { target: "_blank" }, href: "https://example.com/page" }),
+    createClick({ href: "https://github.com/tw93/Pake", event: { metaKey: true } }),
+    createClick({ href: "https://evil-multica.ai/login", anchor: { target: "_blank" } }),
   ]) {
     const preview = loadPreviewScript();
     preview.click(event);

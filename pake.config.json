@@ -18,7 +18,8 @@
   "safeDomain": "multica.ai",
   "inject": [
     "./multica-inbox-comment-tools.user.js",
-    "./multica-workspace-title.user.js"
+    "./multica-workspace-title.user.js",
+    "./arc-window-preview.user.js"
   ],
   "appVersion": "0.1.13",
   "targets": "app",

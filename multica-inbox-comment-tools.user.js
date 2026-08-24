@@ -314,8 +314,7 @@
       .mc-mark-popover,
       .mc-mark-cards {
         position: fixed;
-        /* Above page dialogs (md preview modal) that stack near the top. */
-        z-index: 2147483600;
+        z-index: 11;
         pointer-events: auto;
         border: 1px solid #27272a;
         border-radius: 10px;
@@ -383,9 +382,9 @@
       .mc-mark-popover blockquote {
         margin: 0 0 8px;
         padding: 6px 8px;
-        border-left: 3px solid #d97706;
+        border-left: 3px solid #2563eb;
         border-radius: 4px;
-        background: rgb(217 119 6 / 0.1);
+        background: rgb(37 99 235 / 0.1);
         color: #d4d4d8;
         font-size: 12px;
         line-height: 17px;
@@ -416,6 +415,8 @@
       }
 
       .mc-mark-cards {
+        /* Full-viewport origin so absolute children map 1:1 to viewport coords. */
+        inset: 0;
         pointer-events: none;
         border: 0;
         background: transparent;
@@ -425,27 +426,26 @@
 
       .mc-mark-card {
         position: absolute;
-        width: 232px;
+        pointer-events: auto;
+        width: 200px;
         /* Right padding leaves room for the hover action buttons. */
-        padding: 6px 52px 6px 9px;
-        border: 1px solid rgb(217 119 6 / 0.5);
+        padding: 5px 44px 5px 8px;
+        border: 1px solid #3f3f46;
         border-radius: 8px;
-        background: rgb(217 119 6 / 0.94);
-        color: #1c1917;
+        background: #18181B;
+        color: #f4f4f5;
         font-size: 11px;
         line-height: 16px;
-        box-shadow: 0 6px 18px rgb(0 0 0 / 0.14);
+        box-shadow: 0 10px 30px rgb(15 23 42 / 0.2);
         cursor: default;
-        pointer-events: auto;
       }
 
-      .mc-mark-card .mc-mark-card-quote {
-        margin-bottom: 3px;
-        color: rgb(28 25 23 / 0.72);
+      .mc-mark-card .mc-mark-card-note {
         overflow: hidden;
         display: -webkit-box;
-        -webkit-line-clamp: 2;
+        -webkit-line-clamp: 3;
         -webkit-box-orient: vertical;
+        word-break: break-word;
       }
 
       .mc-mark-card-actions {
@@ -471,14 +471,14 @@
         justify-content: center;
         border: 0;
         border-radius: 5px;
-        background: rgb(28 25 23 / 0.85);
-        color: #fef3c7;
+        background: #27272a;
+        color: #e4e4e7;
         cursor: pointer;
         padding: 0;
       }
 
       .mc-mark-card-btn:hover {
-        background: #1c1917;
+        background: #3f3f46;
       }
 
       .mc-mark-card-btn svg {
@@ -526,7 +526,7 @@
         left: 50%;
         bottom: 34px;
         transform: translateX(-50%) translateY(8px);
-        z-index: 2147483601;
+        z-index: 12;
         padding: 8px 14px;
         border: 1px solid #27272a;
         border-radius: 8px;
@@ -711,7 +711,7 @@
     choiceBtn.hidden = true;
     choiceBtn.title = "选择这个方案";
     choiceBtn.setAttribute("aria-label", "选择这个方案");
-    choiceBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>';
+    choiceBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.25"></circle><path d="m8.4 12.2 2.4 2.4 4.8-5.2"></path></svg>';
     choiceBtn.addEventListener("mousedown", (event) => event.preventDefault());
     choiceBtn.addEventListener("click", commitChoiceMark);
 
@@ -1237,7 +1237,7 @@
     renderMarkCard(pendingMark);
     pendingMark = null;
     markPopover.hidden = true;
-    selectionBtn.hidden = true;
+    hideSelectionButtons();
     positionMarkCards();
   }
 
@@ -1334,11 +1334,6 @@
     card.className = "mc-mark-card";
     card.dataset.markId = mark.id;
 
-    const quote = document.createElement("div");
-    quote.className = "mc-mark-card-quote";
-    quote.textContent = mark.quote;
-    quote.title = mark.quote;
-
     const note = document.createElement("div");
     note.className = "mc-mark-card-note";
     note.textContent = mark.note;
@@ -1348,7 +1343,7 @@
     actions.className = "mc-mark-card-actions";
     actions.append(createCardAction("edit", mark), createCardAction("delete", mark));
 
-    card.append(quote, note, actions);
+    card.append(note, actions);
     markCardsLayer.appendChild(card);
     mark.card = card;
     positionMarkCards();
@@ -1393,7 +1388,7 @@
       if (!mark.node.isConnected) continue;
       const rect = mark.node.getBoundingClientRect();
       mark.card.style.left = `${Math.round(
-        Math.max(8, Math.min(window.innerWidth - 240, rect.left + rect.width / 2 - 116))
+        Math.max(8, Math.min(window.innerWidth - 208, rect.left + rect.width / 2 - 100))
       )}px`;
       mark.card.style.top = `${Math.round(Math.max(8, rect.top - mark.card.offsetHeight - 8))}px`;
     }

@@ -54,6 +54,16 @@ test("hover cards expose edit and delete actions", () => {
   assert.match(source, /\.mc-mark-card:focus-within \.mc-mark-card-actions/);
 });
 
+test("cards show only the note, dark-themed, z-index 1, no orange", () => {
+  assert.doesNotMatch(source, /mc-mark-card-quote/);
+  assert.match(source, /\.mc-mark-card \.mc-mark-card-note/);
+  assert.match(source, /\.mc-mark-card \{[^}]*background:\s*#18181B/s);
+  assert.match(source, /z-index:\s*11;/);
+  assert.doesNotMatch(source, /z-index:\s*21474836/);
+  // No orange accent anywhere in the mark UI.
+  assert.doesNotMatch(source, /d97706/);
+});
+
 test("choice marks commit instantly with a preset note and green highlight", () => {
   assert.match(source, /const CHOICE_NOTE = "✅ 选择这个方案"/);
   assert.match(source, /createMark\(lastSelection, CHOICE_NOTE\)/);
