@@ -1143,6 +1143,8 @@
     }
 
     const rect = pick.range.getBoundingClientRect();
+    selectionBtn.hidden = false;
+    choiceBtn.hidden = false;
     selectionToolbar.hidden = false;
     // The pair is laid out as one unit: selection first, choice beside it.
     // Clamping each button independently lets them collide when a full-line

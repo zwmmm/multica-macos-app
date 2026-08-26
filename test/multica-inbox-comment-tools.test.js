@@ -86,6 +86,7 @@ test("choice marks commit instantly with a preset note and green highlight", () 
 test("the choice button sits next to the mark button on selection", () => {
   assert.match(source, /choiceBtn = document\.createElement\("button"\)/);
   assert.match(source, /selectionToolbar\.append\(selectionBtn, choiceBtn\)/);
+  assert.match(source, /selectionBtn\.hidden = false;\s*\n\s*choiceBtn\.hidden = false;\s*\n\s*selectionToolbar\.hidden = false;/);
   assert.match(source, /id = "mc-selection-toolbar"/);
   // The toolbar is laid out relative to the selection.
   assert.match(source, /const selectionLeft = Math\.max\(8, Math\.min\(window\.innerWidth - 38, rect\.right - 15\)\)/);
