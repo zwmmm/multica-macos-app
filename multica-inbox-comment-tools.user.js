@@ -32,8 +32,10 @@
   let choiceBtn;
   let markPopover;
   let markPopoverInput;
+  let markPopoverAnchor = null;
   let markCardsLayer;
   let sendButton;
+  let actionGroup;
   let toastNode;
   let selectionTimer = 0;
   let toastTimer = 0;
@@ -90,7 +92,6 @@
 
       .mc-tools-btn,
       .mc-timeline {
-        position: fixed;
         z-index: 100;
         pointer-events: auto;
         border: 1px solid #27272a;
@@ -100,7 +101,7 @@
       }
 
       .mc-tools-btn {
-        right: 17px;
+        position: relative;
         width: 40px;
         height: 40px;
         display: inline-flex;
@@ -113,16 +114,30 @@
       }
 
       .mc-scroll-bottom-btn {
-        bottom: 75px;
+        order: 3;
       }
 
       .mc-timeline-trigger {
-        bottom: 123px;
+        order: 2;
       }
 
       .mc-mark-send {
-        bottom: 171px;
-        z-index: 101;
+        order: 1;
+      }
+
+      .mc-actions {
+        position: fixed;
+        right: 17px;
+        bottom: 75px;
+        z-index: 100;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        pointer-events: none;
+      }
+
+      .mc-actions > .mc-tools-btn {
+        pointer-events: auto;
       }
 
       .mc-tools-btn:hover {
@@ -147,6 +162,7 @@
       }
 
       .mc-timeline {
+        position: fixed;
         right: 65px;
         bottom: 75px;
         width: min(240px, calc(100vw - 84px));
@@ -623,19 +639,12 @@
 
       @media (max-width: 720px) {
         .mc-tools-btn {
+          right: auto;
+        }
+
+        .mc-actions {
           right: 8px;
-        }
-
-        .mc-scroll-bottom-btn {
           bottom: 76px;
-        }
-
-        .mc-timeline-trigger {
-          bottom: 124px;
-        }
-
-        .mc-mark-send {
-          bottom: 172px;
         }
 
         .mc-timeline {
@@ -763,11 +772,16 @@
     sendButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"></path><path d="M22 2 11 13"></path></svg>';
     sendButton.addEventListener("click", sendMarkComment);
 
+    actionGroup = document.createElement("div");
+    actionGroup.className = "mc-actions";
+    actionGroup.setAttribute("aria-label", "评论工具");
+    actionGroup.append(sendButton, timelineButton, bottomButton);
+
     toastNode = document.createElement("div");
     toastNode.id = "mc-toast";
     toastNode.setAttribute("role", "status");
 
-    root.append(timelinePanel, timelineButton, bottomButton, markCardsLayer, selectionToolbar, markPopover, sendButton);
+    root.append(timelinePanel, markCardsLayer, selectionToolbar, markPopover, actionGroup);
     document.body.appendChild(root);
     document.body.appendChild(toastNode);
 
@@ -1191,6 +1205,8 @@
   function openMarkPopover() {
     if (pendingMark) return;
 
+    markPopoverAnchor = selectionToolbar.getBoundingClientRect();
+
     if (!lastSelection) {
       // The selection was cleared (e.g. by the button click); restore it.
       const selection = document.getSelection();
@@ -1219,16 +1235,23 @@
     // The selectionchange from clearing the selection arrives after this and
     // updateSelectionButton bails while the popover is open, so hide now.
     hideSelectionButtons();
-    // Wait for layout before positioning so offsetHeight is accurate.
-    requestAnimationFrame(() => {
-      positionMarkPopover();
-      markPopoverInput.focus();
-      markPopoverInput.select();
-    });
+    positionMarkPopover();
+    markPopoverAnchor = null;
+    markPopoverInput.focus();
+    markPopoverInput.select();
   }
 
   function positionMarkPopover() {
     if (!pendingMark?.range?.startContainer.isConnected) return;
+    if (markPopoverAnchor) {
+      const width = markPopover.offsetWidth;
+      const height = markPopover.offsetHeight;
+      const left = Math.max(8, Math.min(window.innerWidth - width - 8, markPopoverAnchor.left));
+      const top = Math.max(8, Math.min(window.innerHeight - height - 8, markPopoverAnchor.top));
+      markPopover.style.left = `${Math.round(left)}px`;
+      markPopover.style.top = `${Math.round(top)}px`;
+      return;
+    }
     const rect = pendingMark.range.getBoundingClientRect();
     const width = Math.min(680, window.innerWidth - 32);
     const anchorLeft = rect.left + rect.width / 2;
@@ -1253,6 +1276,7 @@
     // A never-noted mark is discarded; an existing one only closes the editor.
     if (!pendingMark.note) removeMark(pendingMark);
     pendingMark = null;
+    markPopoverAnchor = null;
     markPopover.hidden = true;
     hideSelectionButtons();
   }
@@ -1269,6 +1293,7 @@
     pendingMark.note = note;
     renderMarkCard(pendingMark);
     pendingMark = null;
+    markPopoverAnchor = null;
     markPopover.hidden = true;
     hideSelectionButtons();
     positionMarkCards();
@@ -1297,6 +1322,8 @@
 
   function removeMark(mark) {
     mark.card?.remove();
+    mark.range = null;
+    mark.anchor = null;
     const index = marks.indexOf(mark);
     if (index >= 0) marks.splice(index, 1);
     if (sendButton) sendButton.hidden = marks.length === 0;
@@ -1417,12 +1444,12 @@
       }
       (mark.choice ? choiceRanges : ranges).push(mark.range);
     }
-    markHighlight = ranges.length > 0 ? new Highlight(...ranges) : null;
-    choiceHighlight = choiceRanges.length > 0 ? new Highlight(...choiceRanges) : null;
+    markHighlight = new Highlight(...ranges);
+    choiceHighlight = new Highlight(...choiceRanges);
     CSS.highlights.delete("mc-mark");
     CSS.highlights.delete("mc-mark-choice");
-    if (markHighlight) CSS.highlights.set("mc-mark", markHighlight);
-    if (choiceHighlight) CSS.highlights.set("mc-mark-choice", choiceHighlight);
+    CSS.highlights.set("mc-mark", markHighlight);
+    CSS.highlights.set("mc-mark-choice", choiceHighlight);
   }
 
   function renderMarkCard(mark) {
@@ -1464,6 +1491,7 @@
       event.stopPropagation();
       if (action === "edit") {
         if (pendingMark && pendingMark !== mark) cancelPendingMark();
+        markPopoverAnchor = null;
         pendingMark = mark;
         openMarkEditor(mark);
       } else {
@@ -1510,14 +1538,12 @@
     }
     marks = [];
     pendingMark = null;
+    markPopoverAnchor = null;
     if (markCardsLayer) markCardsLayer.replaceChildren();
     if (markPopover) markPopover.hidden = true;
     hideSelectionButtons();
     if (sendButton) sendButton.hidden = true;
-    if ("highlights" in CSS) {
-      CSS.highlights.delete("mc-mark");
-      CSS.highlights.delete("mc-mark-choice");
-    }
+    applyHighlights();
   }
 
   // Quote lines get "> "; the reply itself is plain text. Multiple marks are

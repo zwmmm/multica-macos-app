@@ -7,7 +7,7 @@ const source = fs.readFileSync("multica-inbox-comment-tools.user.js", "utf8");
 test("quote preview and input are wired into the mark popover", () => {
   assert.match(source, /mc-mark-quote-preview/);
   assert.match(source, /markPopover\.append\(quotePreview, markPopoverInput\)/);
-  assert.match(source, /positionMarkPopover\(\);\s*\n\s*markPopoverInput\.focus\(\)/);
+  assert.match(source, /positionMarkPopover\(\);[\s\S]*?markPopoverInput\.focus\(\)/);
 });
 
 test("building the comment pairs each quote with its note", () => {
@@ -39,8 +39,13 @@ test("empty note deletes the highlight", () => {
   assert.match(source, /if \(!note\) \{\s*\n\s*\/\/ Empty note deletes the highlight[\s\S]*?cancelPendingMark\(\);/);
 });
 
+test("deleting a mark detaches its range before repainting highlights", () => {
+  assert.match(source, /function removeMark\(mark\) \{[\s\S]*?mark\.range = null;[\s\S]*?mark\.anchor = null;[\s\S]*?applyHighlights\(\);/);
+  assert.match(source, /CSS\.highlights\.set\("mc-mark", markHighlight\)/);
+});
+
 test("highlights paint via the CSS Custom Highlight API and relocate", () => {
-  assert.match(source, /markHighlight = ranges\.length > 0 \? new Highlight\(\.\.\.ranges\) : null/);
+  assert.match(source, /markHighlight = new Highlight\(\.\.\.ranges\)/);
   assert.match(source, /::highlight\(mc-mark\)/);
   assert.match(source, /function relocateMark\(mark\)/);
   assert.match(source, /function buildAnchor\(range, quote\)/);
@@ -58,6 +63,12 @@ test("sending posts to the API with cookie CSRF, chat-aware", () => {
 
 test("opening the mark editor hides the selection buttons", () => {
   assert.match(source, /markPopover\.hidden = false;\s*\n\s*\/\/ The selectionchange[\s\S]*?hideSelectionButtons\(\);/);
+});
+
+test("opening a new mark editor anchors the popover to the selection toolbar", () => {
+  assert.match(source, /selectionToolbar\.getBoundingClientRect\(\)/);
+  assert.match(source, /markPopoverAnchor/);
+  assert.match(source, /if \(markPopoverAnchor\)/);
 });
 
 test("hover cards expose edit and delete actions", () => {
@@ -127,4 +138,12 @@ test("selections inside inputs and own UI never trigger the mark button", () => 
 test("hidden buttons stay hidden despite author display rules", () => {
   assert.match(source, /\.mc-tools-btn\[hidden\][\s\S]*?display:\s*none/);
   assert.match(source, /#mc-selection-toolbar\[hidden\][\s\S]*?display:\s*none/);
+});
+
+test("right-side actions share one floating stack and collapse hidden items", () => {
+  assert.match(source, /actionGroup\.className = "mc-actions"/);
+  assert.match(source, /actionGroup\.append\(sendButton, timelineButton, bottomButton\)/);
+  assert.match(source, /\.mc-actions\s*>\s*\.mc-tools-btn\s*\{/);
+  assert.match(source, /display:\s*flex;/);
+  assert.match(source, /gap:\s*8px;/);
 });
