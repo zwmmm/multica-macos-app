@@ -44,11 +44,13 @@ test("clicking an existing highlight reopens the note editor", () => {
   assert.match(source, /pendingMark = mark;\s*\n\s*openMarkEditor\(mark\)/);
 });
 
-test("sending drives the page comment composer", () => {
-  assert.match(source, /findCommentComposer\(\)/);
-  assert.match(source, /fillComposer\(composer, markdown\)/);
-  assert.match(source, /submitComposer\(composer\)/);
-  assert.match(source, /if \(submitted\) clearMarks\(\)/);
+test("sending posts to the API with cookie CSRF, chat-aware", () => {
+  assert.match(source, /slice\("multica_csrf="\.length\)/);
+  assert.match(source, /headers\["X-CSRF-Token"\] = csrf/);
+  assert.match(source, /headers\["X-Workspace-Slug"\] = workspaceSlug/);
+  assert.match(source, /function findChatSessionId\(\)/);
+  assert.match(source, /chat\/sessions\/\$\{chatSessionId\}\/messages/);
+  assert.match(source, /showToast\(chatSessionId \? "消息已发送" : "评论已发送"\);\s*\n\s*clearMarks\(\);/);
 });
 
 test("opening the mark editor hides the selection buttons", () => {

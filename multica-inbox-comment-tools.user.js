@@ -1460,109 +1460,92 @@
     return buildMarkComment(marks);
   }
 
-  // The comments API rejects scripted POSTs (CSRF validation), and the page
-  // exposes no reusable request client, so sending drives the page's own
-  // comment composer instead.
-  function findCommentComposer() {
-    const editors = Array.from(
-      document.querySelectorAll('textarea, [contenteditable="true"], [contenteditable=""]')
-    ).filter((el) => el instanceof HTMLElement && !isUiNode(el) && isVisible(el));
-    if (editors.length === 0) return null;
+  // The comments API takes the issue UUID. The URL carries it directly when
+  // the page was opened from a list link (/issues/<uuid>) but rewrites to the
+  // human key (SCI-575) after redirect, so fall back to the UUID from the
+  // page's own most recent /api/issues/<uuid> call.
+  function findIssueUuid() {
+    const fromUrl = location.pathname.match(/\/issues\/([0-9a-f-]{36})/);
+    if (fromUrl) return fromUrl[1];
 
-    // Prefer an editor that sits near existing comments (the reply box).
-    const commentNodes = Array.from(document.querySelectorAll(`[id^="${COMMENT_ID_PREFIX}"]`));
-    let best = null;
-    let bestDistance = Infinity;
-    for (const editor of editors) {
-      const rect = editor.getBoundingClientRect();
-      const editorTop = rect.top;
-      let distance = editorTop;
-      for (const node of commentNodes) {
-        const nodeRect = node.getBoundingClientRect();
-        distance = Math.min(distance, Math.abs(nodeRect.bottom - editorTop));
-      }
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        best = editor;
-      }
+    let latest = "";
+    for (const entry of performance.getEntriesByType("resource")) {
+      const match = entry.name.match(/api\/issues\/([0-9a-f-]{36})/);
+      if (match) latest = match[1];
     }
-    return best;
+    return latest;
   }
 
-  function isVisible(el) {
-    const rect = el.getBoundingClientRect();
-    if (rect.width < 40 || rect.height < 16) return false;
-    return getComputedStyle(el).visibility !== "hidden";
+  // Chat pages send through the session messages API instead.
+  function findChatSessionId() {
+    const fromUrl = new URLSearchParams(location.search).get("session");
+    if (fromUrl && /^[0-9a-f-]{36}$/.test(fromUrl)) return fromUrl;
+    for (const entry of performance.getEntriesByType("resource")) {
+      const match = entry.name.match(/chat\/sessions\/([0-9a-f-]{36})/);
+      if (match) return match[1];
+    }
+    return "";
   }
 
-  function fillComposer(composer, text) {
-    if (composer instanceof HTMLTextAreaElement || composer instanceof HTMLInputElement) {
-      setNativeValue(composer, text);
-      return;
-    }
-
-    composer.focus();
-    try {
-      const dataTransfer = new DataTransfer();
-      dataTransfer.setData("text/plain", text);
-      composer.dispatchEvent(
-        new ClipboardEvent("paste", { clipboardData: dataTransfer, bubbles: true, cancelable: true })
-      );
-    } catch (_error) {
-      composer.textContent = text;
-    }
-    composer.dispatchEvent(new InputEvent("input", { bubbles: true }));
-  }
-
-  function setNativeValue(el, value) {
-    const setter = Object.getOwnPropertyDescriptor(el.constructor.prototype, "value")?.set;
-    if (setter) setter.call(el, value);
-    else el.value = value;
-    el.dispatchEvent(new Event("input", { bubbles: true }));
-    el.dispatchEvent(new Event("change", { bubbles: true }));
-  }
-
-  const SUBMIT_TEXT_RE = /^(评论|回复|发送|提交|发表|留言|comment|reply|send|submit)$/i;
-
-  function submitComposer(composer) {
-    const scope = composer.closest("form") || document;
-    const buttons = Array.from(scope.querySelectorAll('button, [role="button"]')).filter((btn) => {
-      if (!(btn instanceof HTMLElement) || btn === composer || isUiNode(btn) || !isVisible(btn)) return false;
-      const label = normalizeText(btn.textContent);
-      if (!SUBMIT_TEXT_RE.test(label)) return false;
-      return true;
-    });
-    if (buttons.length === 0) {
-      const submitButtons = Array.from(scope.querySelectorAll('button[type="submit"], [role="button"][type="submit"]')).filter(
-        (btn) => btn instanceof HTMLElement && !isUiNode(btn) && isVisible(btn)
-      );
-      if (submitButtons.length === 0) return false;
-      submitButtons.at(-1).click();
-      return true;
-    }
-    buttons.at(-1).click();
-    return true;
+  // The API needs the CSRF token from the multica_csrf cookie plus the client
+  // headers the web app sends. The token must be sliced by the cookie name's
+  // exact length — off by one and the server answers 403 CSRF validation.
+  function buildCommentHeaders() {
+    const row = document.cookie.split("; ").find((r) => r.startsWith("multica_csrf="));
+    const csrf = row ? row.slice("multica_csrf=".length) : "";
+    const headers = {
+      "Content-Type": "application/json",
+      "X-Client-OS": "macos",
+      "X-Client-Platform": "web",
+      "X-Request-ID": Math.random().toString(16).slice(2, 10),
+    };
+    if (csrf) headers["X-CSRF-Token"] = csrf;
+    const workspaceSlug = location.pathname.split("/")[1];
+    if (workspaceSlug) headers["X-Workspace-Slug"] = workspaceSlug;
+    return headers;
   }
 
   async function sendMarkComment() {
     if (marks.length === 0) return;
 
-    const markdown = buildMarkCommentMarkdown();
-    const composer = findCommentComposer();
-    if (!composer) {
-      try {
-        await navigator.clipboard.writeText(markdown);
-        showToast("未找到评论框,内容已复制到剪贴板");
-      } catch (_error) {
-        showToast("未找到评论框,且复制失败");
+    const content = buildMarkCommentMarkdown();
+    const chatSessionId = findChatSessionId();
+    let url;
+    let body;
+    if (chatSessionId) {
+      url = `https://api.multica.ai/api/chat/sessions/${chatSessionId}/messages`;
+      body = { content };
+    } else {
+      const issueId = findIssueUuid();
+      if (!issueId) {
+        try {
+          await navigator.clipboard.writeText(content);
+          showToast("未找到任务 ID,内容已复制到剪贴板");
+        } catch (_error) {
+          showToast("未找到任务 ID,且复制失败");
+        }
+        return;
       }
-      return;
+      url = `https://api.multica.ai/api/issues/${issueId}/comments`;
+      body = { content, type: "comment" };
     }
 
-    fillComposer(composer, markdown);
-    const submitted = submitComposer(composer);
-    showToast(submitted ? "评论已发送" : "已填入评论框,请手动发送");
-    if (submitted) clearMarks();
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        credentials: "include",
+        headers: buildCommentHeaders(),
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) {
+        showToast(`发送失败 (HTTP ${response.status})`);
+        return;
+      }
+      showToast(chatSessionId ? "消息已发送" : "评论已发送");
+      clearMarks();
+    } catch (_error) {
+      showToast("发送失败,请检查网络");
+    }
   }
 
   if (document.readyState === "loading") {
