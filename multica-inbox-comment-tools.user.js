@@ -91,7 +91,7 @@
       .mc-tools-btn,
       .mc-timeline {
         position: fixed;
-        z-index: 40;
+        z-index: 100;
         pointer-events: auto;
         border: 1px solid #27272a;
         background: #18181B;
@@ -543,7 +543,7 @@
         left: 50%;
         bottom: 34px;
         transform: translateX(-50%) translateY(8px);
-        z-index: 12;
+        z-index: 100;
         padding: 8px 14px;
         border: 1px solid #27272a;
         border-radius: 8px;
@@ -1518,10 +1518,18 @@
     }
   }
 
+  // Quote lines get "> "; the reply itself is plain text. Multiple marks are
+  // rendered as a markdown list of quote/reply pairs.
   function buildMarkComment(entries) {
     return entries
-      .map((entry) => `> ${entry.quote}\n${entry.note}`)
-      .join("\n\n---\n\n");
+      .map((entry) => {
+        const quote = entry.quote
+          .split("\n")
+          .map((line) => `> ${line}`)
+          .join("\n");
+        return `- ${quote}\n  ${entry.note.replace(/\n/g, "\n  ")}`;
+      })
+      .join("\n\n");
   }
 
   function buildMarkCommentMarkdown() {

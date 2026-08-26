@@ -22,7 +22,7 @@ test("building the comment pairs each quote with its note", () => {
 
   assert.equal(
     markdown,
-    "> 这里有个问题\n建议改为异步加载\n\n---\n\n> 另一处\n需要补充测试"
+    "- > 这里有个问题\n  建议改为异步加载\n\n- > 另一处\n  需要补充测试"
   );
 });
 
