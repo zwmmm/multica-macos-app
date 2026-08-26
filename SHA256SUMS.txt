@@ -1,1 +1,1 @@
-65116bf60c29238e95008918f3955fbddd5cec5ce8fe1afbc6e27b7dfc5aacf7  Multica-0.1.19-arm64.dmg
+1697db5452350dbf2b811401e3fe9bdee5e818734d23c2d500bda15dbd8317bc  Multica-0.1.20-arm64.dmg

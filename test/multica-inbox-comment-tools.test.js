@@ -4,6 +4,30 @@ const test = require("node:test");
 
 const source = fs.readFileSync("multica-inbox-comment-tools.user.js", "utf8");
 
+function extractFunction(name) {
+  const start = source.indexOf(`function ${name}(`);
+  assert.notEqual(start, -1, `${name} should exist`);
+  const bodyStart = source.indexOf("{", start);
+  let depth = 0;
+  for (let index = bodyStart; index < source.length; index += 1) {
+    if (source[index] === "{") depth += 1;
+    if (source[index] === "}") depth -= 1;
+    if (depth === 0) return source.slice(start, index + 1);
+  }
+  throw new Error(`Could not extract ${name}`);
+}
+
+function createHighlightRegistry() {
+  const entries = new Map();
+  return {
+    entries,
+    api: {
+      delete: (name) => entries.delete(name),
+      set: (name, highlight) => entries.set(name, highlight),
+    },
+  };
+}
+
 test("quote preview and input are wired into the mark popover", () => {
   assert.match(source, /mc-mark-quote-preview/);
   assert.match(source, /markPopover\.append\(quotePreview, markPopoverInput\)/);
@@ -45,7 +69,7 @@ test("deleting a mark detaches its range before repainting highlights", () => {
 });
 
 test("highlights paint via the CSS Custom Highlight API and relocate", () => {
-  assert.match(source, /markHighlight = new Highlight\(\.\.\.ranges\)/);
+  assert.match(source, /markHighlight = ranges\.length > 0 \? new Highlight\(\.\.\.ranges\) : null/);
   assert.match(source, /::highlight\(mc-mark\)/);
   assert.match(source, /function relocateMark\(mark\)/);
   assert.match(source, /function buildAnchor\(range, quote\)/);
@@ -89,9 +113,90 @@ test("cards show only the note, dark-themed, z-index 100, no orange", () => {
 
 test("choice marks commit instantly with a preset note and green highlight", () => {
   assert.match(source, /const CHOICE_NOTE = "✅ 选择这个方案"/);
-  assert.match(source, /createMark\(lastSelection, CHOICE_NOTE\)/);
-  assert.match(source, /mark\.choice = true/);
+  assert.match(source, /createMark\(lastSelection, CHOICE_NOTE, true\)/);
+  assert.match(source, /function createMark\(pick, note, choice = false\)/);
   assert.match(source, /::highlight\(mc-mark-choice\)/);
+});
+
+test("choice marks enter the green registry on their first paint", () => {
+  class FakeNode {}
+  class FakeHighlight {
+    constructor(...ranges) {
+      this.ranges = ranges;
+    }
+  }
+  const registry = createHighlightRegistry();
+  const range = {
+    startContainer: Object.assign(new FakeNode(), { isConnected: true }),
+    endContainer: Object.assign(new FakeNode(), { isConnected: true }),
+  };
+  const run = new Function(
+    "Node",
+    "Highlight",
+    "CSS",
+    "range",
+    `
+      let marks = [];
+      let markSeq = 0;
+      let markHighlight = null;
+      let choiceHighlight = null;
+      let sendButton = null;
+      let pendingMark = null;
+      let lastSelection = { range, text: "方案 A" };
+      const CHOICE_NOTE = "选择这个方案";
+      const document = { getSelection: () => ({ removeAllRanges() {} }) };
+      const buildAnchor = () => null;
+      const showToast = () => {};
+      const hideSelectionButtons = () => {};
+      const renderMarkCard = () => {};
+      const relocateMark = () => false;
+      ${extractFunction("applyHighlights")}
+      ${extractFunction("createMark")}
+      ${extractFunction("commitChoiceMark")}
+      commitChoiceMark();
+    `
+  );
+
+  run(FakeNode, FakeHighlight, { highlights: registry.api }, range);
+  assert.deepEqual(registry.entries.get("mc-mark")?.ranges ?? [], []);
+  assert.deepEqual(registry.entries.get("mc-mark-choice")?.ranges ?? [], [range]);
+});
+
+test("deleting the last mark removes its highlight registry entries", () => {
+  class FakeHighlight {
+    constructor(...ranges) {
+      this.ranges = ranges;
+    }
+  }
+  const registry = createHighlightRegistry();
+  const mark = {
+    anchor: { quote: "方案 A" },
+    card: { remove() {} },
+    choice: false,
+    range: { startContainer: { isConnected: true } },
+  };
+  registry.entries.set("mc-mark", new FakeHighlight(mark.range));
+  const run = new Function(
+    "Highlight",
+    "CSS",
+    "mark",
+    `
+      let marks = [mark];
+      let markHighlight = null;
+      let choiceHighlight = null;
+      let sendButton = null;
+      const relocateMark = () => false;
+      ${extractFunction("applyHighlights")}
+      ${extractFunction("removeMark")}
+      removeMark(mark);
+    `
+  );
+
+  run(FakeHighlight, { highlights: registry.api }, mark);
+  assert.equal(registry.entries.has("mc-mark"), false);
+  assert.equal(registry.entries.has("mc-mark-choice"), false);
+  assert.equal(mark.range, null);
+  assert.equal(mark.anchor, null);
 });
 
 test("the choice button sits next to the mark button on selection", () => {

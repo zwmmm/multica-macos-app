@@ -1311,10 +1311,9 @@
       lastSelection = pick;
     }
 
-    const mark = createMark(lastSelection, CHOICE_NOTE);
+    const mark = createMark(lastSelection, CHOICE_NOTE, true);
     lastSelection = null;
     if (!mark) return;
-    mark.choice = true;
     document.getSelection()?.removeAllRanges();
     hideSelectionButtons();
     renderMarkCard(mark);
@@ -1330,7 +1329,7 @@
     applyHighlights();
   }
 
-  function createMark(pick, note) {
+  function createMark(pick, note, choice = false) {
     const range = pick.range;
     if (
       !(range.startContainer instanceof Node) || !range.startContainer.isConnected ||
@@ -1349,7 +1348,7 @@
       // after React remounts the surrounding DOM.
       range,
       anchor: buildAnchor(range, pick.text),
-      choice: false,
+      choice,
     };
     marks.push(mark);
     if (sendButton) sendButton.hidden = false;
@@ -1444,12 +1443,12 @@
       }
       (mark.choice ? choiceRanges : ranges).push(mark.range);
     }
-    markHighlight = new Highlight(...ranges);
-    choiceHighlight = new Highlight(...choiceRanges);
     CSS.highlights.delete("mc-mark");
     CSS.highlights.delete("mc-mark-choice");
-    CSS.highlights.set("mc-mark", markHighlight);
-    CSS.highlights.set("mc-mark-choice", choiceHighlight);
+    markHighlight = ranges.length > 0 ? new Highlight(...ranges) : null;
+    choiceHighlight = choiceRanges.length > 0 ? new Highlight(...choiceRanges) : null;
+    if (markHighlight) CSS.highlights.set("mc-mark", markHighlight);
+    if (choiceHighlight) CSS.highlights.set("mc-mark-choice", choiceHighlight);
   }
 
   function renderMarkCard(mark) {
