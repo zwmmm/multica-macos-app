@@ -39,9 +39,12 @@ test("empty note deletes the highlight", () => {
   assert.match(source, /if \(!note\) \{\s*\n\s*\/\/ Empty note deletes the highlight[\s\S]*?cancelPendingMark\(\);/);
 });
 
-test("clicking an existing highlight reopens the note editor", () => {
-  assert.match(source, /target\.closest\(`mark\.\$\{MARK_CLASS\}`\)/);
-  assert.match(source, /pendingMark = mark;\s*\n\s*openMarkEditor\(mark\)/);
+test("highlights paint via the CSS Custom Highlight API and relocate", () => {
+  assert.match(source, /markHighlight = ranges\.length > 0 \? new Highlight\(\.\.\.ranges\) : null/);
+  assert.match(source, /::highlight\(mc-mark\)/);
+  assert.match(source, /function relocateMark\(mark\)/);
+  assert.match(source, /function buildAnchor\(range, quote\)/);
+  assert.doesNotMatch(source, /extractContents\(\)/);
 });
 
 test("sending posts to the API with cookie CSRF, chat-aware", () => {
@@ -76,8 +79,8 @@ test("cards show only the note, dark-themed, z-index 100, no orange", () => {
 test("choice marks commit instantly with a preset note and green highlight", () => {
   assert.match(source, /const CHOICE_NOTE = "✅ 选择这个方案"/);
   assert.match(source, /createMark\(lastSelection, CHOICE_NOTE\)/);
-  assert.match(source, /classList\.add\("mc-mark-choice"\)/);
-  assert.match(source, /\.mc-mark-choice\s*\{/);
+  assert.match(source, /mark\.choice = true/);
+  assert.match(source, /::highlight\(mc-mark-choice\)/);
 });
 
 test("the choice button sits next to the mark button on selection", () => {

@@ -561,12 +561,13 @@
         transform: translateX(-50%);
       }
 
-      mark.mc-mark {
+      /* Highlights paint via the CSS Custom Highlight API (::highlight),
+         which never mutates the page DOM and survives React remounts. */
+      ::highlight(mc-mark) {
         background-color: rgb(250 204 21 / 0.5);
-        color: inherit;
       }
 
-      mark.mc-mark.mc-mark-choice {
+      ::highlight(mc-mark-choice) {
         background-color: rgb(74 222 128 / 0.45);
       }
 
@@ -772,7 +773,6 @@
 
     document.addEventListener("selectionchange", scheduleSelectionCheck);
     document.addEventListener("scroll", positionMarkOverlays, true);
-    document.addEventListener("click", handleMarkClick, true);
     window.addEventListener("resize", positionMarkOverlays);
   }
 
@@ -1222,8 +1222,8 @@
   }
 
   function positionMarkPopover() {
-    if (!pendingMark?.node?.isConnected) return;
-    const rect = pendingMark.node.getBoundingClientRect();
+    if (!pendingMark?.range?.startContainer.isConnected) return;
+    const rect = pendingMark.range.getBoundingClientRect();
     const width = Math.min(680, window.innerWidth - 32);
     const anchorLeft = rect.left + rect.width / 2;
     const left = Math.max(
@@ -1283,18 +1283,18 @@
     const mark = createMark(lastSelection, CHOICE_NOTE);
     lastSelection = null;
     if (!mark) return;
-    mark.node.classList.add("mc-mark-choice");
+    mark.choice = true;
     document.getSelection()?.removeAllRanges();
     hideSelectionButtons();
     renderMarkCard(mark);
   }
 
   function removeMark(mark) {
-    if (mark.node instanceof Element && mark.node.isConnected) unwrapMarkNode(mark.node);
     mark.card?.remove();
     const index = marks.indexOf(mark);
     if (index >= 0) marks.splice(index, 1);
     if (sendButton) sendButton.hidden = marks.length === 0;
+    applyHighlights();
   }
 
   function createMark(pick, note) {
@@ -1307,49 +1307,116 @@
       return null;
     }
 
-    // extractContents + insert handles selections that cross element boundaries.
-    const wrapper = makeMarkWrapper();
-    try {
-      wrapper.appendChild(range.extractContents());
-      range.insertNode(wrapper);
-    } catch (_error) {
-      showToast("标记插入失败");
-      return null;
-    }
-
     markSeq += 1;
     const mark = {
       id: `mc-mark-${markSeq}`,
       note,
       quote: pick.text,
-      node: wrapper,
+      // The live range plus a text anchor so the highlight can be relocated
+      // after React remounts the surrounding DOM.
+      range,
+      anchor: buildAnchor(range, pick.text),
+      choice: false,
     };
     marks.push(mark);
     if (sendButton) sendButton.hidden = false;
+    applyHighlights();
 
     return mark;
   }
 
-  function makeMarkWrapper() {
-    const wrapper = document.createElement("mark");
-    wrapper.className = MARK_CLASS;
-    wrapper.title = "点击编辑标记";
-    return wrapper;
+  // Highlight anchoring: remember the container element (by a stable selector
+  // chain), the quote text, and the quote's start offset in the container's
+  // text content. After a remount the quote is searched again to rebuild the
+  // range — robust as long as the text itself survives.
+  function buildAnchor(range, quote) {
+    const container = range.commonAncestorContainer;
+    const holder = container.nodeType === Node.TEXT_NODE ? container.parentElement : container;
+    if (!(holder instanceof Element)) return null;
+    const scope = holder.closest("[id]") || holder.closest("main, article") || document.body;
+    const scopeText = scope.textContent || "";
+    const offset = scopeText.indexOf(quote);
+    return {
+      scopeSelector: cssSelectorFor(scope),
+      quote,
+      offset: offset >= 0 ? offset : -1,
+    };
   }
 
-  function handleMarkClick(event) {
-    if (pendingMark) return;
-    const target = event.target;
-    if (!(target instanceof Element)) return;
-    const node = target.closest(`mark.${MARK_CLASS}`);
-    if (!node || isUiNode(node)) return;
-    const mark = marks.find((entry) => entry.node === node);
-    if (!mark) return;
+  function cssSelectorFor(el) {
+    if (!(el instanceof Element)) return "body";
+    const parts = [];
+    let node = el;
+    while (node instanceof Element && node !== document.body) {
+      let selector = node.tagName.toLowerCase();
+      if (node.id) {
+        parts.unshift(`${selector}#${CSS.escape(node.id)}`);
+        break;
+      }
+      const parent = node.parentElement;
+      if (parent) {
+        const sameTag = Array.from(parent.children).filter((c) => c.tagName === node.tagName);
+        if (sameTag.length > 1) selector += `:nth-of-type(${sameTag.indexOf(node) + 1})`;
+      }
+      parts.unshift(selector);
+      node = node.parentElement;
+    }
+    return parts.join(" > ") || "body";
+  }
 
-    event.preventDefault();
-    event.stopPropagation();
-    pendingMark = mark;
-    openMarkEditor(mark);
+  // Rebuild a mark's range from its anchor after the DOM was remounted.
+  function relocateMark(mark) {
+    if (!mark.anchor || mark.anchor.offset < 0) return false;
+    const scope = document.querySelector(mark.anchor.scopeSelector) || document.body;
+    const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
+    let text = "";
+    const stops = [];
+    let node;
+    while ((node = walker.nextNode())) {
+      stops.push({ node, start: text.length });
+      text += node.textContent || "";
+    }
+    const start = text.indexOf(mark.anchor.quote, Math.max(0, mark.anchor.offset - 40));
+    if (start < 0) return false;
+    let end = start + mark.anchor.quote.length;
+    const startStop = stops.filter((s) => s.start <= start).pop();
+    const endStop = stops.filter((s) => s.start < end).pop();
+    if (!startStop || !endStop) return false;
+    try {
+      const range = document.createRange();
+      range.setStart(startStop.node, start - startStop.start);
+      range.setEnd(endStop.node, end - endStop.start);
+      mark.range = range;
+      return true;
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  let markHighlight = null;
+  let choiceHighlight = null;
+
+  // Paint every mark through the CSS Custom Highlight API. Unlike a <mark>
+  // wrapper this never mutates the page DOM, so React remounts cannot destroy
+  // the highlight — the range is simply relocated from the text anchor.
+  // Fresh Highlight instances force WebKit to repaint (plain delete() on an
+  // emptied entry can leave stale paint).
+  function applyHighlights() {
+    if (!("highlights" in CSS)) return;
+    const ranges = [];
+    const choiceRanges = [];
+    for (const mark of marks) {
+      if (!mark.range || !mark.range.startContainer.isConnected) {
+        if (!relocateMark(mark)) continue;
+      }
+      (mark.choice ? choiceRanges : ranges).push(mark.range);
+    }
+    markHighlight = ranges.length > 0 ? new Highlight(...ranges) : null;
+    choiceHighlight = choiceRanges.length > 0 ? new Highlight(...choiceRanges) : null;
+    CSS.highlights.delete("mc-mark");
+    CSS.highlights.delete("mc-mark-choice");
+    if (markHighlight) CSS.highlights.set("mc-mark", markHighlight);
+    if (choiceHighlight) CSS.highlights.set("mc-mark-choice", choiceHighlight);
   }
 
   function renderMarkCard(mark) {
@@ -1405,15 +1472,17 @@
       positionMarkPopover();
     }
     positionMarkCards();
+    applyHighlights();
   }
 
   function positionMarkCards() {
     if (!markCardsLayer) return;
     for (const mark of marks) {
       if (!mark.card) continue;
-      mark.card.hidden = !mark.node.isConnected;
-      if (!mark.node.isConnected) continue;
-      const rect = mark.node.getBoundingClientRect();
+      const alive = mark.range?.startContainer.isConnected || relocateMark(mark);
+      mark.card.hidden = !alive;
+      if (!alive) continue;
+      const rect = mark.range.getBoundingClientRect();
       mark.card.style.left = `${Math.round(
         Math.max(8, Math.min(window.innerWidth - 208, rect.left + rect.width / 2 - 100))
       )}px`;
@@ -1431,7 +1500,6 @@
 
   function clearMarks() {
     for (const mark of marks) {
-      if (mark.node instanceof Element && mark.node.isConnected) unwrapMarkNode(mark.node);
       mark.card?.remove();
     }
     marks = [];
@@ -1440,14 +1508,10 @@
     if (markPopover) markPopover.hidden = true;
     hideSelectionButtons();
     if (sendButton) sendButton.hidden = true;
-  }
-
-  function unwrapMarkNode(node) {
-    const parent = node.parentNode;
-    if (!parent) return;
-    while (node.firstChild) parent.insertBefore(node.firstChild, node);
-    parent.removeChild(node);
-    parent.normalize();
+    if ("highlights" in CSS) {
+      CSS.highlights.delete("mc-mark");
+      CSS.highlights.delete("mc-mark-choice");
+    }
   }
 
   function buildMarkComment(entries) {
