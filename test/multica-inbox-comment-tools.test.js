@@ -117,7 +117,10 @@ test("leaving the issue page clears marks", () => {
 
 test("selections inside inputs and own UI never trigger the mark button", () => {
   assert.match(source, /if \(isUiNode\(holder\) \|\| !isMarkablePage\(\)\) return null;/);
-  assert.match(source, /holder\.closest\("input, textarea, \[contenteditable\]"\)/);
+  assert.match(source, /holder\.closest\("input, textarea"\)/);
+  // Read-only ProseMirror previews stay markable; real editors carry a
+  // placeholder and are excluded.
+  assert.match(source, /\.is-editor-empty, \[data-placeholder\]/);
 });
 
 test("hidden buttons stay hidden despite author display rules", () => {

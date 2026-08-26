@@ -1163,7 +1163,11 @@
     const holder = nodeAsElement(range.commonAncestorContainer);
     if (!holder) return null;
     if (isUiNode(holder) || !isMarkablePage()) return null;
-    if (holder.closest("input, textarea, [contenteditable]")) return null;
+    if (holder.closest("input, textarea")) return null;
+    // Real editors (comment composer) carry an empty-state placeholder;
+    // read-only ProseMirror previews don't — those stay markable.
+    const editableRoot = holder.closest("[contenteditable]");
+    if (editableRoot && editableRoot.querySelector(".is-editor-empty, [data-placeholder]")) return null;
 
     const text = normalizeText(range.toString());
     if (!text || text.length < 2 || text.length > 1200) return null;
