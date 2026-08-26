@@ -23,5 +23,6 @@
   ],
   "appVersion": "0.1.14",
   "targets": "app",
-  "keepBinary": false
+  "keepBinary": false,
+  "install": true
 }

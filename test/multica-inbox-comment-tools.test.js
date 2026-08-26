@@ -61,11 +61,11 @@ test("hover cards expose edit and delete actions", () => {
   assert.match(source, /\.mc-mark-card:focus-within \.mc-mark-card-actions/);
 });
 
-test("cards show only the note, dark-themed, z-index 1, no orange", () => {
+test("cards show only the note, dark-themed, z-index 100, no orange", () => {
   assert.doesNotMatch(source, /mc-mark-card-quote/);
   assert.match(source, /\.mc-mark-card \.mc-mark-card-note/);
   assert.match(source, /\.mc-mark-card \{[^}]*background:\s*#18181B/s);
-  assert.match(source, /z-index:\s*11;/);
+  assert.match(source, /z-index:\s*100;/);
   assert.doesNotMatch(source, /z-index:\s*21474836/);
   // No orange accent anywhere in the mark UI.
   assert.doesNotMatch(source, /d97706/);
@@ -79,12 +79,13 @@ test("choice marks commit instantly with a preset note and green highlight", () 
 });
 
 test("the choice button sits next to the mark button on selection", () => {
-  assert.match(source, /id = "mc-choice-btn"/);
-  // The pair is laid out relative to the mark button so the two can never
-  // collide when clamped against the viewport edge.
+  assert.match(source, /choiceBtn = document\.createElement\("button"\)/);
+  assert.match(source, /selectionToolbar\.append\(selectionBtn, choiceBtn\)/);
+  assert.match(source, /id = "mc-selection-toolbar"/);
+  // The toolbar is laid out relative to the selection.
   assert.match(source, /const selectionLeft = Math\.max\(8, Math\.min\(window\.innerWidth - 38, rect\.right - 15\)\)/);
-  assert.match(source, /rightLeft \+ 30 <= window\.innerWidth - 8[\s\S]*?choiceBtn\.style\.left = `\$\{rightLeft\}px`/);
-  assert.match(source, /#mc-choice-btn\[hidden\][\s\S]*?display:\s*none/);
+  assert.match(source, /selectionToolbar\.style\.left = `\$\{selectionLeft\}px`/);
+  assert.match(source, /#mc-selection-toolbar\[hidden\][\s\S]*?display:\s*none/);
 });
 
 test("chat pages are markable", () => {
@@ -116,5 +117,5 @@ test("selections inside inputs and own UI never trigger the mark button", () => 
 
 test("hidden buttons stay hidden despite author display rules", () => {
   assert.match(source, /\.mc-tools-btn\[hidden\][\s\S]*?display:\s*none/);
-  assert.match(source, /#mc-selection-btn\[hidden\][\s\S]*?display:\s*none/);
+  assert.match(source, /#mc-selection-toolbar\[hidden\][\s\S]*?display:\s*none/);
 });

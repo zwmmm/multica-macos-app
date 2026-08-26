@@ -27,6 +27,7 @@
   let lastSelection = null;
   let markSeq = 0;
   let marksPageKey = "__unset__";
+  let selectionToolbar;
   let selectionBtn;
   let choiceBtn;
   let markPopover;
@@ -121,6 +122,7 @@
 
       .mc-mark-send {
         bottom: 171px;
+        z-index: 101;
       }
 
       .mc-tools-btn:hover {
@@ -308,12 +310,59 @@
         transition: background-color 180ms ease !important;
       }
 
-      #mc-selection-btn,
-      #mc-choice-btn,
+      /* Selection toolbar mirroring the native Multica bubble menu
+         (measured: bg oklch(0.235)=#262628, border white/10%, radius 10px,
+         padding 4px, gap 1px, buttons 28x28 radius 8px, icons 14px white). */
+      #mc-selection-toolbar {
+        position: fixed;
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        gap: 1px;
+        padding: 4px;
+        border-radius: 10px;
+        background: #262628;
+        border: 1px solid rgb(250 250 250 / 0.1);
+        box-shadow: 0 4px 12px rgb(0 0 0 / 0.12), 0 0 0 1px rgb(0 0 0 / 0.04);
+        pointer-events: auto;
+      }
+
+      #mc-selection-toolbar[hidden] {
+        display: none;
+      }
+
+      #mc-selection-toolbar button {
+        width: 28px;
+        height: 28px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: #fafafa;
+        cursor: pointer;
+        padding: 0;
+      }
+
+      #mc-selection-toolbar button:hover {
+        background: rgb(250 250 250 / 0.1);
+      }
+
+      #mc-selection-toolbar button svg {
+        width: 14px;
+        height: 14px;
+        stroke: currentColor;
+        stroke-width: 2;
+        fill: none;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
       .mc-mark-popover,
       .mc-mark-cards {
         position: fixed;
-        z-index: 11;
+        z-index: 100;
         pointer-events: auto;
         border: 1px solid #27272a;
         border-radius: 10px;
@@ -323,48 +372,17 @@
         font-family: var(--font-inter);
       }
 
-      #mc-selection-btn,
-      #mc-choice-btn {
-        width: 30px;
-        height: 30px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 999px;
-        cursor: pointer;
-        color: #e4e4e7;
-      }
-
-      #mc-selection-btn:hover,
-      #mc-choice-btn:hover {
-        border-color: #3f3f46;
-        background: #27272a;
-      }
-
       /* Author display rules override the UA [hidden] default, so hide explicitly. */
-      #mc-selection-btn[hidden],
-      #mc-choice-btn[hidden],
       .mc-tools-btn[hidden],
       .mc-mark-card[hidden] {
         display: none;
-      }
-
-      #mc-selection-btn svg,
-      #mc-choice-btn svg {
-        width: 15px;
-        height: 15px;
-        stroke: currentColor;
-        stroke-width: 2;
-        fill: none;
-        stroke-linecap: round;
-        stroke-linejoin: round;
       }
 
       .mc-mark-popover {
         /* Fit content up to a cap; short quotes no longer stretch to full width. */
         width: max-content;
         min-width: 180px;
-        max-width: min(340px, calc(100vw - 32px));
+        max-width: min(680px, calc(100vw - 32px));
         padding: 8px;
       }
 
@@ -393,7 +411,7 @@
            width would otherwise dominate it. Track the quote width instead. */
         width: auto;
         min-width: 100%;
-        max-width: min(322px, calc(100vw - 48px));
+        max-width: min(664px, calc(100vw - 48px));
         height: 66px;
         padding: 6px 8px;
         border: 1px solid #3f3f46;
@@ -694,10 +712,12 @@
     markCardsLayer = document.createElement("div");
     markCardsLayer.className = "mc-mark-cards";
 
+    selectionToolbar = document.createElement("div");
+    selectionToolbar.id = "mc-selection-toolbar";
+    selectionToolbar.hidden = true;
+
     selectionBtn = document.createElement("button");
-    selectionBtn.id = "mc-selection-btn";
     selectionBtn.type = "button";
-    selectionBtn.hidden = true;
     selectionBtn.title = "标记选中文字";
     selectionBtn.setAttribute("aria-label", "标记选中文字");
     selectionBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>';
@@ -705,14 +725,14 @@
     selectionBtn.addEventListener("click", openMarkPopover);
 
     choiceBtn = document.createElement("button");
-    choiceBtn.id = "mc-choice-btn";
     choiceBtn.type = "button";
-    choiceBtn.hidden = true;
     choiceBtn.title = "选择这个方案";
     choiceBtn.setAttribute("aria-label", "选择这个方案");
     choiceBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.25"></circle><path d="m8.4 12.2 2.4 2.4 4.8-5.2"></path></svg>';
     choiceBtn.addEventListener("mousedown", (event) => event.preventDefault());
     choiceBtn.addEventListener("click", commitChoiceMark);
+
+    selectionToolbar.append(selectionBtn, choiceBtn);
 
     markPopover = document.createElement("div");
     markPopover.className = "mc-mark-popover";
@@ -746,7 +766,7 @@
     toastNode.id = "mc-toast";
     toastNode.setAttribute("role", "status");
 
-    root.append(timelinePanel, timelineButton, bottomButton, markCardsLayer, selectionBtn, choiceBtn, markPopover, sendButton);
+    root.append(timelinePanel, timelineButton, bottomButton, markCardsLayer, selectionToolbar, markPopover, sendButton);
     document.body.appendChild(root);
     document.body.appendChild(toastNode);
 
@@ -1094,6 +1114,7 @@
   }
 
   function hideSelectionButtons() {
+    if (selectionToolbar) selectionToolbar.hidden = true;
     if (selectionBtn) selectionBtn.hidden = true;
     if (choiceBtn) choiceBtn.hidden = true;
   }
@@ -1104,10 +1125,11 @@
   }
 
   function updateSelectionButton() {
-    if (!selectionBtn) return;
+    if (!selectionToolbar) return;
     if (markPopover && !markPopover.hidden) return;
     if (!isMarkablePage()) {
       hideSelectionButtons();
+      if (selectionToolbar) selectionToolbar.hidden = true;
       return;
     }
 
@@ -1116,28 +1138,19 @@
     lastSelection = pick;
     if (!pick) {
       hideSelectionButtons();
+      if (selectionToolbar) selectionToolbar.hidden = true;
       return;
     }
 
     const rect = pick.range.getBoundingClientRect();
-    selectionBtn.hidden = false;
+    selectionToolbar.hidden = false;
     // The pair is laid out as one unit: selection first, choice beside it.
     // Clamping each button independently lets them collide when a full-line
     // selection pushes both against the viewport edge.
     const top = `${Math.max(8, rect.top - 36)}px`;
     const selectionLeft = Math.max(8, Math.min(window.innerWidth - 38, rect.right - 15));
-    selectionBtn.style.left = `${selectionLeft}px`;
-    selectionBtn.style.top = top;
-    if (choiceBtn) {
-      choiceBtn.hidden = false;
-      choiceBtn.style.top = top;
-      const rightLeft = selectionLeft + 34;
-      if (rightLeft + 30 <= window.innerWidth - 8) {
-        choiceBtn.style.left = `${rightLeft}px`;
-      } else {
-        choiceBtn.style.left = `${Math.max(8, selectionLeft - 34)}px`;
-      }
-    }
+    selectionToolbar.style.left = `${selectionLeft}px`;
+    selectionToolbar.style.top = top;
   }
 
   function pickSelectableRange(selection) {
@@ -1200,15 +1213,18 @@
     // The selectionchange from clearing the selection arrives after this and
     // updateSelectionButton bails while the popover is open, so hide now.
     hideSelectionButtons();
-    positionMarkPopover();
-    markPopoverInput.focus();
-    markPopoverInput.select();
+    // Wait for layout before positioning so offsetHeight is accurate.
+    requestAnimationFrame(() => {
+      positionMarkPopover();
+      markPopoverInput.focus();
+      markPopoverInput.select();
+    });
   }
 
   function positionMarkPopover() {
     if (!pendingMark?.node?.isConnected) return;
     const rect = pendingMark.node.getBoundingClientRect();
-    const width = Math.min(340, window.innerWidth - 32);
+    const width = Math.min(680, window.innerWidth - 32);
     const anchorLeft = rect.left + rect.width / 2;
     const left = Math.max(
       8,
