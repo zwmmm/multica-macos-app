@@ -17,16 +17,16 @@ function extractFunction(name) {
   throw new Error(`Could not extract ${name}`);
 }
 
-function createHighlightRegistry() {
-  const entries = new Map();
+function makeFakeLayer() {
   return {
-    entries,
-    api: {
-      delete: (name) => entries.delete(name),
-      set: (name, highlight) => entries.set(name, highlight),
+    children: [],
+    replaceChildren(...kids) {
+      this.children = kids;
     },
   };
 }
+
+const fakeDocument = { createElement: () => ({ style: {}, dataset: {} }) };
 
 test("quote preview and input are wired into the mark popover", () => {
   assert.match(source, /mc-mark-quote-preview/);
@@ -64,13 +64,15 @@ test("empty note deletes the highlight", () => {
 });
 
 test("deleting a mark detaches its range before repainting highlights", () => {
-  assert.match(source, /function removeMark\(mark\) \{[\s\S]*?mark\.range = null;[\s\S]*?mark\.anchor = null;[\s\S]*?applyHighlights\(\);/);
-  assert.match(source, /CSS\.highlights\.set\("mc-mark", markHighlight\)/);
+  assert.match(source, /function removeMark\(mark\) \{[\s\S]*?mark\.range = null;[\s\S]*?mark\.anchor = null;[\s\S]*?renderMarkHighlights\(\);/);
 });
 
-test("highlights paint via the CSS Custom Highlight API and relocate", () => {
-  assert.match(source, /markHighlight = ranges\.length > 0 \? new Highlight\(\.\.\.ranges\) : null/);
-  assert.match(source, /::highlight\(mc-mark\)/);
+test("highlights paint via an own overlay layer and relocate", () => {
+  // WKWebView's ::highlight() repainting is unreliable (removed highlights
+  // linger), so marks own their layer instead of the Custom Highlight API.
+  assert.match(source, /function renderMarkHighlights\(\)/);
+  assert.match(source, /markHighlightLayer\.replaceChildren\(\.\.\.boxes\)/);
+  assert.doesNotMatch(source, /CSS\.highlights/);
   assert.match(source, /function relocateMark\(mark\)/);
   assert.match(source, /function buildAnchor\(range, quote\)/);
   assert.doesNotMatch(source, /extractContents\(\)/);
@@ -86,7 +88,7 @@ test("sending posts to the API with cookie CSRF, chat-aware", () => {
 });
 
 test("opening the mark editor hides the selection buttons", () => {
-  assert.match(source, /markPopover\.hidden = false;\s*\n\s*\/\/ The selectionchange[\s\S]*?hideSelectionButtons\(\);/);
+  assert.match(source, /markPopover\.hidden = false;\s*\n\s*markPopoverPlaced = false;\s*\n\s*\/\/ The selectionchange[\s\S]*?hideSelectionButtons\(\);/);
 });
 
 test("opening a new mark editor anchors the popover to the selection toolbar", () => {
@@ -115,86 +117,69 @@ test("choice marks commit instantly with a preset note and green highlight", () 
   assert.match(source, /const CHOICE_NOTE = "✅ 选择这个方案"/);
   assert.match(source, /createMark\(lastSelection, CHOICE_NOTE, true\)/);
   assert.match(source, /function createMark\(pick, note, choice = false\)/);
-  assert.match(source, /::highlight\(mc-mark-choice\)/);
+  assert.match(source, /\.mc-mark-highlight\[data-choice\]\s*\{[^}]*rgb\(74 222 128/s);
 });
 
-test("choice marks enter the green registry on their first paint", () => {
+test("choice marks paint into the green highlight boxes", () => {
   class FakeNode {}
-  class FakeHighlight {
-    constructor(...ranges) {
-      this.ranges = ranges;
-    }
+  function paintBoxes(choice) {
+    const range = {
+      startContainer: Object.assign(new FakeNode(), { isConnected: true }),
+      endContainer: Object.assign(new FakeNode(), { isConnected: true }),
+      getClientRects: () => [{ left: 1, top: 2, width: 30, height: 14 }],
+    };
+    const layer = makeFakeLayer();
+    new Function(
+      "document",
+      "markHighlightLayer",
+      "marks",
+      `
+        const relocateMark = () => false;
+        ${extractFunction("renderMarkHighlights")}
+        renderMarkHighlights();
+      `
+    )(fakeDocument, layer, [{ range, choice }]);
+    return layer.children;
   }
-  const registry = createHighlightRegistry();
-  const range = {
-    startContainer: Object.assign(new FakeNode(), { isConnected: true }),
-    endContainer: Object.assign(new FakeNode(), { isConnected: true }),
-  };
-  const run = new Function(
-    "Node",
-    "Highlight",
-    "CSS",
-    "range",
-    `
-      let marks = [];
-      let markSeq = 0;
-      let markHighlight = null;
-      let choiceHighlight = null;
-      let sendButton = null;
-      let pendingMark = null;
-      let lastSelection = { range, text: "方案 A" };
-      const CHOICE_NOTE = "选择这个方案";
-      const document = { getSelection: () => ({ removeAllRanges() {} }) };
-      const buildAnchor = () => null;
-      const showToast = () => {};
-      const hideSelectionButtons = () => {};
-      const renderMarkCard = () => {};
-      const relocateMark = () => false;
-      ${extractFunction("applyHighlights")}
-      ${extractFunction("createMark")}
-      ${extractFunction("commitChoiceMark")}
-      commitChoiceMark();
-    `
-  );
 
-  run(FakeNode, FakeHighlight, { highlights: registry.api }, range);
-  assert.deepEqual(registry.entries.get("mc-mark")?.ranges ?? [], []);
-  assert.deepEqual(registry.entries.get("mc-mark-choice")?.ranges ?? [], [range]);
+  const boxes = paintBoxes(true);
+  assert.equal(boxes.length, 1);
+  assert.equal(boxes[0].dataset.choice, "true");
+  const plain = paintBoxes(false);
+  assert.equal(plain.length, 1);
+  assert.equal("choice" in plain[0].dataset, false);
 });
 
-test("deleting the last mark removes its highlight registry entries", () => {
-  class FakeHighlight {
-    constructor(...ranges) {
-      this.ranges = ranges;
-    }
-  }
-  const registry = createHighlightRegistry();
+test("deleting the last mark empties its highlight layer", () => {
+  const layer = makeFakeLayer();
+  layer.children = [{ stale: true }];
   const mark = {
     anchor: { quote: "方案 A" },
     card: { remove() {} },
     choice: false,
-    range: { startContainer: { isConnected: true } },
+    range: {
+      startContainer: { isConnected: true },
+      getClientRects: () => [{ left: 0, top: 0, width: 5, height: 5 }],
+    },
   };
-  registry.entries.set("mc-mark", new FakeHighlight(mark.range));
-  const run = new Function(
-    "Highlight",
-    "CSS",
+  new Function(
+    "document",
+    "markHighlightLayer",
     "mark",
     `
       let marks = [mark];
-      let markHighlight = null;
-      let choiceHighlight = null;
       let sendButton = null;
       const relocateMark = () => false;
-      ${extractFunction("applyHighlights")}
       ${extractFunction("removeMark")}
+      ${extractFunction("renderMarkHighlights")}
       removeMark(mark);
+      renderMarkHighlights();
     `
-  );
+  )(fakeDocument, layer, mark);
 
-  run(FakeHighlight, { highlights: registry.api }, mark);
-  assert.equal(registry.entries.has("mc-mark"), false);
-  assert.equal(registry.entries.has("mc-mark-choice"), false);
+  // Removed marks leave no boxes behind — the overlay layer is rebuilt from
+  // the surviving marks on every paint.
+  assert.deepEqual(layer.children, []);
   assert.equal(mark.range, null);
   assert.equal(mark.anchor, null);
 });

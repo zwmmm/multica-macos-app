@@ -33,7 +33,11 @@
   let markPopover;
   let markPopoverInput;
   let markPopoverAnchor = null;
+  let markPopoverOffsetX = 0;
+  let markPopoverOffsetY = 0;
+  let markPopoverPlaced = false;
   let markCardsLayer;
+  let markHighlightLayer;
   let sendButton;
   let actionGroup;
   let toastNode;
@@ -577,13 +581,23 @@
         transform: translateX(-50%);
       }
 
-      /* Highlights paint via the CSS Custom Highlight API (::highlight),
-         which never mutates the page DOM and survives React remounts. */
-      ::highlight(mc-mark) {
+      /* Mark overlays are translucent boxes drawn above the text, PDF
+         text-layer style. Owned by our own layer so show/hide is
+         deterministic (WebKit's ::highlight() repainting is unreliable). */
+      .mc-mark-highlights {
+        position: fixed;
+        inset: 0;
+        overflow: hidden;
+        pointer-events: none;
+      }
+
+      .mc-mark-highlight {
+        position: absolute;
+        border-radius: 3px;
         background-color: rgb(250 204 21 / 0.5);
       }
 
-      ::highlight(mc-mark-choice) {
+      .mc-mark-highlight[data-choice] {
         background-color: rgb(74 222 128 / 0.45);
       }
 
@@ -722,6 +736,9 @@
     markCardsLayer = document.createElement("div");
     markCardsLayer.className = "mc-mark-cards";
 
+    markHighlightLayer = document.createElement("div");
+    markHighlightLayer.className = "mc-mark-highlights";
+
     selectionToolbar = document.createElement("div");
     selectionToolbar.id = "mc-selection-toolbar";
     selectionToolbar.hidden = true;
@@ -781,7 +798,7 @@
     toastNode.id = "mc-toast";
     toastNode.setAttribute("role", "status");
 
-    root.append(timelinePanel, markCardsLayer, selectionToolbar, markPopover, actionGroup);
+    root.append(markHighlightLayer, timelinePanel, markCardsLayer, selectionToolbar, markPopover, actionGroup);
     document.body.appendChild(root);
     document.body.appendChild(toastNode);
 
@@ -1232,36 +1249,44 @@
     markPopover.querySelector(".mc-mark-quote-preview").textContent = mark.quote;
     markPopoverInput.value = mark.note;
     markPopover.hidden = false;
+    markPopoverPlaced = false;
     // The selectionchange from clearing the selection arrives after this and
     // updateSelectionButton bails while the popover is open, so hide now.
     hideSelectionButtons();
     positionMarkPopover();
-    markPopoverAnchor = null;
     markPopoverInput.focus();
     markPopoverInput.select();
   }
 
   function positionMarkPopover() {
     if (!pendingMark?.range?.startContainer.isConnected) return;
-    if (markPopoverAnchor) {
+    const rect = pendingMark.range.getBoundingClientRect();
+
+    if (!markPopoverPlaced) {
+      // Placement is decided once at open time (toolbar anchor or centered
+      // above the highlight). Later calls only track the highlight with the
+      // recorded offset, so scrolling keeps the popover glued to its text
+      // instead of re-deciding the layout mid-edit.
       const width = markPopover.offsetWidth;
       const height = markPopover.offsetHeight;
-      const left = Math.max(8, Math.min(window.innerWidth - width - 8, markPopoverAnchor.left));
-      const top = Math.max(8, Math.min(window.innerHeight - height - 8, markPopoverAnchor.top));
-      markPopover.style.left = `${Math.round(left)}px`;
-      markPopover.style.top = `${Math.round(top)}px`;
-      return;
+      let left;
+      let top;
+      if (markPopoverAnchor) {
+        left = Math.max(8, Math.min(window.innerWidth - width - 8, markPopoverAnchor.left));
+        top = Math.max(8, Math.min(window.innerHeight - height - 8, markPopoverAnchor.top));
+      } else {
+        const anchorLeft = rect.left + rect.width / 2;
+        left = Math.max(8, Math.min(window.innerWidth - width - 8, anchorLeft - width / 2));
+        top = Math.max(8, Math.round(rect.top) - height - 10);
+      }
+      markPopoverOffsetX = Math.round(left) - rect.left;
+      markPopoverOffsetY = Math.round(top) - rect.top;
+      markPopoverPlaced = true;
+      markPopoverAnchor = null;
     }
-    const rect = pendingMark.range.getBoundingClientRect();
-    const width = Math.min(680, window.innerWidth - 32);
-    const anchorLeft = rect.left + rect.width / 2;
-    const left = Math.max(
-      8,
-      Math.min(window.innerWidth - width - 8, anchorLeft - width / 2)
-    );
-    // centerTop: horizontally centered on the highlight, popover above it.
-    markPopover.style.left = `${Math.round(left)}px`;
-    markPopover.style.top = `${Math.max(8, Math.round(rect.top) - markPopover.offsetHeight - 10)}px`;
+
+    markPopover.style.left = `${Math.round(rect.left + markPopoverOffsetX)}px`;
+    markPopover.style.top = `${Math.round(rect.top + markPopoverOffsetY)}px`;
   }
 
   function handlePopoverDismiss(event) {
@@ -1326,7 +1351,7 @@
     const index = marks.indexOf(mark);
     if (index >= 0) marks.splice(index, 1);
     if (sendButton) sendButton.hidden = marks.length === 0;
-    applyHighlights();
+    renderMarkHighlights();
   }
 
   function createMark(pick, note, choice = false) {
@@ -1352,7 +1377,7 @@
     };
     marks.push(mark);
     if (sendButton) sendButton.hidden = false;
-    applyHighlights();
+    renderMarkHighlights();
 
     return mark;
   }
@@ -1425,30 +1450,33 @@
     }
   }
 
-  let markHighlight = null;
-  let choiceHighlight = null;
-
-  // Paint every mark through the CSS Custom Highlight API. Unlike a <mark>
-  // wrapper this never mutates the page DOM, so React remounts cannot destroy
-  // the highlight — the range is simply relocated from the text anchor.
-  // Fresh Highlight instances force WebKit to repaint (plain delete() on an
-  // emptied entry can leave stale paint).
-  function applyHighlights() {
-    if (!("highlights" in CSS)) return;
-    const ranges = [];
-    const choiceRanges = [];
+  // Paint marks as absolutely-positioned translucent boxes over the live
+  // range rects (the PDF text-layer technique). This replaced a CSS Custom
+  // Highlight API implementation whose ::highlight() paint lingered after
+  // removal — WKWebView only repainted when an unrelated update touched the
+  // area. Boxes live in our own layer: add/remove is deterministic and the
+  // page DOM is never mutated, so React remounts cannot destroy the paint;
+  // disconnected ranges are rebuilt from the stored text anchor.
+  function renderMarkHighlights() {
+    if (!markHighlightLayer) return;
+    const boxes = [];
     for (const mark of marks) {
       if (!mark.range || !mark.range.startContainer.isConnected) {
         if (!relocateMark(mark)) continue;
       }
-      (mark.choice ? choiceRanges : ranges).push(mark.range);
+      for (const rect of mark.range.getClientRects()) {
+        if (rect.width < 1 || rect.height < 1) continue;
+        const box = document.createElement("div");
+        box.className = "mc-mark-highlight";
+        if (mark.choice) box.dataset.choice = "true";
+        box.style.left = `${rect.left}px`;
+        box.style.top = `${rect.top}px`;
+        box.style.width = `${rect.width}px`;
+        box.style.height = `${rect.height}px`;
+        boxes.push(box);
+      }
     }
-    CSS.highlights.delete("mc-mark");
-    CSS.highlights.delete("mc-mark-choice");
-    markHighlight = ranges.length > 0 ? new Highlight(...ranges) : null;
-    choiceHighlight = choiceRanges.length > 0 ? new Highlight(...choiceRanges) : null;
-    if (markHighlight) CSS.highlights.set("mc-mark", markHighlight);
-    if (choiceHighlight) CSS.highlights.set("mc-mark-choice", choiceHighlight);
+    markHighlightLayer.replaceChildren(...boxes);
   }
 
   function renderMarkCard(mark) {
@@ -1505,7 +1533,7 @@
       positionMarkPopover();
     }
     positionMarkCards();
-    applyHighlights();
+    renderMarkHighlights();
   }
 
   function positionMarkCards() {
@@ -1542,7 +1570,7 @@
     if (markPopover) markPopover.hidden = true;
     hideSelectionButtons();
     if (sendButton) sendButton.hidden = true;
-    applyHighlights();
+    renderMarkHighlights();
   }
 
   // Quote lines get "> "; the reply itself is plain text. Multiple marks are
