@@ -2,22 +2,18 @@
 
 ## 重要提示
 
-**必须使用本地 fork 的 Pake，不要使用 `npx pake-cli`**
+**使用官方 `npx pake-cli` 构建，无需本地 fork**
 
-- 本地 Pake 位置: `/Users/sanyi/Documents/Code/Pake`
-- 全局安装版本 (`pnpm link --global`): `/Users/sanyi/Library/pnpm/pake`
-- **必需分支**: `feat/macos-window-tabbing`（包含 macTabbingId、NSWindow tabbingMode、lone-window tab bar 三叉补丁；`main` 上没有这些）。构建前确认：`git -C /Users/sanyi/Documents/Code/Pake branch --show-current`
-- Pake 工作区的脏文件属正常状态：`dist/cli.js`（macTabbingId 补丁）、`src-tauri/src/inject/custom.js`（每次构建由 CLI 重新生成拼接注入脚本），不要还原它们。
+- 标签页功能已合并到 Pake 官方仓库：配置 `"multiWindow": true` 即可自动基于 bundle identifier 启用 macOS 原生标签页分组。
+- 窗口与标签页标题联动：通过注入脚本 `multica-workspace-title.user.js` 更新 `document.title`，Pake 监听到后会自动调用 `window.set_title` 同步标签标题。
 
 ## 构建步骤
 
 ```bash
 cd /Users/sanyi/Documents/Code/multica-macos-app
 npm test                 # 先跑测试（node --test test/*.test.js）
-npm run build:app        # 或 build:dmg
+npm run build:app        # 或 build:dmg（内部调用 pnpm dlx github:tw93/Pake --config pake.config.json）
 ```
-
-构建日志特征：`> pake-cli@x.y.z build /Users/sanyi/Documents/Code/Pake` —— 必须指向本地 checkout，若指向别处说明全局链接断了，回 `/Users/sanyi/Documents/Code/Pake` 执行 `pnpm build && pnpm link --global`。
 
 ## 版本号（发新版本时）
 

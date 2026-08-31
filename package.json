@@ -1,14 +1,15 @@
 {
   "name": "multica-macos-app",
   "private": true,
-  "version": "0.1.22",
+  "version": "0.1.23",
   "description": "Multica macOS app packaged with Pake",
   "scripts": {
     "test": "node --test test/*.test.js",
-    "build:app": "pake --config pake.config.json",
-    "build:dmg": "pake --config pake.config.json --targets dmg"
+    "build:app": "pnpm dlx github:tw93/Pake --config pake.config.json",
+    "build:dmg": "pnpm dlx github:tw93/Pake --config pake.config.json --targets dmg"
   },
   "engines": {
     "node": ">=22"
-  }
+  },
+  "packageManager": "pnpm@10.26.2+sha512.0e308ff2005fc7410366f154f625f6631ab2b16b1d2e70238444dd6ae9d630a8482d92a451144debc492416896ed16f7b114a86ec68b8404b2443869e68ffda6"
 }
