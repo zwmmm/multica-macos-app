@@ -22,6 +22,7 @@
   let rescanTimer = 0;
   let activeCommentId = "";
   let lastIssueKey = "";
+  let lastTimelineSignature = "";
   let marks = [];
   let pendingMark = null;
   let lastSelection = null;
@@ -43,6 +44,7 @@
   let toastNode;
   let selectionTimer = 0;
   let toastTimer = 0;
+  let overlayRaf = 0;
 
   function install() {
     injectStyle();
@@ -51,17 +53,31 @@
     scheduleRescan();
 
     const observer = new MutationObserver((mutations) => {
-      const onlyOwnUiChanged = mutations.every((mutation) => {
+      let relevantChange = false;
+      for (let i = 0; i < mutations.length; i++) {
+        const mutation = mutations[i];
         const target = mutation.target;
-        return target instanceof Element && target.closest(`#${ROOT_ID}`);
-      });
-      if (!onlyOwnUiChanged) scheduleRescan();
+        if (target instanceof Element && target.closest(`#${ROOT_ID}, #mc-toast, #mc-selection-toolbar`)) {
+          continue;
+        }
+        if (mutation.type === "childList") {
+          relevantChange = true;
+          break;
+        }
+        if (mutation.type === "attributes") {
+          if (mutation.attributeName === "id" || (target instanceof HTMLElement && target.id?.startsWith(COMMENT_ID_PREFIX))) {
+            relevantChange = true;
+            break;
+          }
+        }
+      }
+      if (relevantChange) scheduleRescan();
     });
     observer.observe(document.documentElement, {
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ["id", "class", "style"],
+      attributeFilter: ["id", "class"],
     });
 
     window.addEventListener("popstate", scheduleRescan);
@@ -810,8 +826,17 @@
     document.body.appendChild(toastNode);
 
     document.addEventListener("selectionchange", scheduleSelectionCheck);
-    document.addEventListener("scroll", positionMarkOverlays, true);
-    window.addEventListener("resize", positionMarkOverlays);
+    document.addEventListener("scroll", schedulePositionMarkOverlays, { capture: true, passive: true });
+    window.addEventListener("resize", schedulePositionMarkOverlays, { passive: true });
+  }
+
+  function schedulePositionMarkOverlays() {
+    if (marks.length === 0 && (!pendingMark || markPopover?.hidden)) return;
+    if (overlayRaf) return;
+    overlayRaf = window.requestAnimationFrame(() => {
+      overlayRaf = 0;
+      positionMarkOverlays();
+    });
   }
 
   function scheduleRescan() {
@@ -854,6 +879,7 @@
     if (timelinePanel) timelinePanel.hidden = true;
     if (timelineList) timelineList.replaceChildren();
     if (countNode) countNode.textContent = "0";
+    lastTimelineSignature = "";
     activeCommentId = "";
     clearMarks();
   }
@@ -890,6 +916,13 @@
   }
 
   function renderTimeline(comments) {
+    const signature = comments.map((c) => `${c.id}:${c.author}:${c.time}:${c.preview}`).join("|");
+    if (signature === lastTimelineSignature) {
+      updateActiveTimelineItem();
+      return;
+    }
+    lastTimelineSignature = signature;
+
     const fragment = document.createDocumentFragment();
 
     comments.forEach((comment, index) => {
@@ -933,15 +966,30 @@
   }
 
   function getCommentEntries() {
-    const nodes = Array.from(document.querySelectorAll(`[id^="${COMMENT_ID_PREFIX}"]`))
-      .filter(isValidCommentNode)
-      .sort((a, b) => {
-        const topDiff = a.getBoundingClientRect().top - b.getBoundingClientRect().top;
-        if (Math.abs(topDiff) > 1) return topDiff;
-        return a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
-      });
+    const rawNodes = Array.from(document.querySelectorAll(`[id^="${COMMENT_ID_PREFIX}"]`));
+    const validNodes = [];
 
-    return nodes.map((node) => {
+    for (let i = 0; i < rawNodes.length; i++) {
+      const node = rawNodes[i];
+      if (isValidCommentNode(node)) {
+        validNodes.push(node);
+      }
+    }
+
+    if (validNodes.length === 0) return [];
+
+    const measured = validNodes.map((node) => ({
+      node,
+      top: node.getBoundingClientRect().top,
+    }));
+
+    measured.sort((a, b) => {
+      const topDiff = a.top - b.top;
+      if (Math.abs(topDiff) > 1) return topDiff;
+      return a.node.compareDocumentPosition(b.node) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+    });
+
+    return measured.map(({ node }) => {
       const id = node.id.slice(COMMENT_ID_PREFIX.length);
       return {
         id,
@@ -958,10 +1006,10 @@
     if (!node.id || !node.id.startsWith(COMMENT_ID_PREFIX)) return false;
     if (node.closest(`#${ROOT_ID}`)) return false;
     if (!node.isConnected) return false;
+    if (node.offsetParent === null && getComputedStyle(node).position !== "fixed") return false;
 
     const rect = node.getBoundingClientRect();
     if (rect.width < 120 || rect.height < 24) return false;
-    if (getComputedStyle(node).display === "none") return false;
 
     const text = normalizeText(node.textContent);
     if (!text || text.length < 2) return false;
@@ -1025,7 +1073,7 @@
       }
     );
 
-    return candidates.sort((a, b) => b.getBoundingClientRect().height - a.getBoundingClientRect().height)[0] || null;
+    return candidates[0] || null;
   }
 
   function stripCommentChrome(text, author, time) {
@@ -1110,23 +1158,11 @@
   }
 
   function findBestScrollable() {
-    const scrollables = Array.from(document.querySelectorAll("body *"))
-      .filter((el) => el instanceof HTMLElement && !el.closest(`#${ROOT_ID}`) && isScrollable(el))
-      .map((el) => {
-        const rect = el.getBoundingClientRect();
-        const commentCount = el.querySelectorAll(`[id^="${COMMENT_ID_PREFIX}"]`).length;
-        return {
-          el,
-          score:
-            commentCount * 10000 +
-            Math.max(0, rect.width) +
-            Math.max(0, rect.height) +
-            Math.max(0, rect.left),
-        };
-      })
-      .sort((a, b) => b.score - a.score);
+    const scrollables = Array.from(
+      document.querySelectorAll("main, [role='main'], article, [data-scroll-container], [class*='overflow-y'], [class*='overflow-auto']")
+    ).filter((el) => el instanceof HTMLElement && !el.closest(`#${ROOT_ID}`) && isScrollable(el));
 
-    return scrollables[0]?.el || document.scrollingElement || document.documentElement;
+    return scrollables[0] || document.scrollingElement || document.documentElement;
   }
 
   function isScrollable(el) {
@@ -1158,6 +1194,11 @@
   }
 
   function scheduleSelectionCheck() {
+    const sel = document.getSelection();
+    if (!sel || sel.isCollapsed) {
+      hideSelectionButtons();
+      return;
+    }
     window.clearTimeout(selectionTimer);
     selectionTimer = window.setTimeout(updateSelectionButton, 140);
   }
@@ -1536,6 +1577,9 @@
   }
 
   function positionMarkOverlays() {
+    if (marks.length === 0 && (!pendingMark || markPopover?.hidden)) {
+      return;
+    }
     if (markPopover && !markPopover.hidden && pendingMark) {
       positionMarkPopover();
     }
@@ -1544,7 +1588,7 @@
   }
 
   function positionMarkCards() {
-    if (!markCardsLayer) return;
+    if (!markCardsLayer || marks.length === 0) return;
     for (const mark of marks) {
       if (!mark.card) continue;
       const alive = mark.range?.startContainer.isConnected || relocateMark(mark);
