@@ -46,7 +46,7 @@ test("building the comment pairs each quote with its note", () => {
 
   assert.equal(
     markdown,
-    "- > 这里有个问题\n  建议改为异步加载\n\n- > 另一处\n  需要补充测试"
+    "> 这里有个问题\n\n建议改为异步加载\n\n\n> 另一处\n\n需要补充测试"
   );
 });
 
@@ -78,13 +78,16 @@ test("highlights paint via an own overlay layer and relocate", () => {
   assert.doesNotMatch(source, /extractContents\(\)/);
 });
 
-test("sending posts to the API with cookie CSRF, chat-aware", () => {
+test("sending posts to the API with cookie CSRF, chat-aware and identifier query", () => {
   assert.match(source, /slice\("multica_csrf="\.length\)/);
   assert.match(source, /headers\["X-CSRF-Token"\] = csrf/);
   assert.match(source, /headers\["X-Workspace-Slug"\] = workspaceSlug/);
   assert.match(source, /function findChatSessionId\(\)/);
   assert.match(source, /chat\/sessions\/\$\{chatSessionId\}\/messages/);
-  assert.match(source, /showToast\(chatSessionId \? "消息已发送" : "评论已发送"\);\s*\n\s*clearMarks\(\);/);
+  assert.match(source, /api\/issues\/\$\{encodeURIComponent\(identifier\)\}/);
+  assert.match(source, /showToast\(isChat \? "消息已发送" : "评论已发送"\);\s*\n\s*clearMarks\(\);/);
+  // Never intercept or scan performance.getEntriesByType to prevent crosstalk across routes
+  assert.doesNotMatch(source, /performance\.getEntriesByType/);
 });
 
 test("opening the mark editor hides the selection buttons", () => {

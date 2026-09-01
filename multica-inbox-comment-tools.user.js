@@ -463,8 +463,7 @@
         position: absolute;
         pointer-events: auto;
         width: 200px;
-        /* Right padding leaves room for the hover action buttons. */
-        padding: 5px 44px 5px 8px;
+        padding: 6px 8px;
         border: 1px solid #3f3f46;
         border-radius: 8px;
         background: #18181B;
@@ -485,19 +484,26 @@
 
       .mc-mark-card-actions {
         position: absolute;
-        right: 6px;
-        /* Vertically centered on the first text line (16px line-height). */
-        top: 50%;
-        transform: translateY(-50%);
+        right: -6px;
+        top: -12px;
         display: flex;
-        gap: 4px;
+        align-items: center;
+        gap: 3px;
+        padding: 2px;
+        border-radius: 6px;
+        background: #18181B;
+        border: 1px solid #3f3f46;
+        box-shadow: 0 4px 12px rgb(0 0 0 / 0.3);
         opacity: 0;
+        pointer-events: none;
         transition: opacity 120ms ease;
+        z-index: 10;
       }
 
       .mc-mark-card:hover .mc-mark-card-actions,
       .mc-mark-card:focus-within .mc-mark-card-actions {
         opacity: 1;
+        pointer-events: auto;
       }
 
       .mc-mark-card-btn {
@@ -507,7 +513,7 @@
         align-items: center;
         justify-content: center;
         border: 0;
-        border-radius: 5px;
+        border-radius: 4px;
         background: #27272a;
         color: #e4e4e7;
         cursor: pointer;
@@ -516,6 +522,7 @@
 
       .mc-mark-card-btn:hover {
         background: #3f3f46;
+        color: #ffffff;
       }
 
       .mc-mark-card-btn svg {
@@ -1573,8 +1580,8 @@
     renderMarkHighlights();
   }
 
-  // Quote lines get "> "; the reply itself is plain text. Multiple marks are
-  // rendered as a markdown list of quote/reply pairs.
+  // Quote lines get "> "; the reply is plain text. Multiple question-answer pairs
+  // are separated by blank lines so they are clearly visually distinguished.
   function buildMarkComment(entries) {
     return entries
       .map((entry) => {
@@ -1582,39 +1589,63 @@
           .split("\n")
           .map((line) => `> ${line}`)
           .join("\n");
-        return `- ${quote}\n  ${entry.note.replace(/\n/g, "\n  ")}`;
+        return `${quote}\n\n${entry.note}`;
       })
-      .join("\n\n");
+      .join("\n\n\n");
   }
 
   function buildMarkCommentMarkdown() {
     return buildMarkComment(marks);
   }
 
-  // The comments API takes the issue UUID. The URL carries it directly when
-  // the page was opened from a list link (/issues/<uuid>) but rewrites to the
-  // human key (SCI-575) after redirect, so fall back to the UUID from the
-  // page's own most recent /api/issues/<uuid> call.
-  function findIssueUuid() {
-    const fromUrl = location.pathname.match(/\/issues\/([0-9a-f-]{36})/);
-    if (fromUrl) return fromUrl[1];
+  function isChatPage() {
+    return /\/chat(\/|$)/.test(location.pathname);
+  }
 
-    let latest = "";
-    for (const entry of performance.getEntriesByType("resource")) {
-      const match = entry.name.match(/api\/issues\/([0-9a-f-]{36})/);
-      if (match) latest = match[1];
+  const issueUuidCache = new Map();
+
+  // The comments API takes the issue UUID. The URL may carry the UUID directly
+  // (e.g. /issues/<uuid> or ?issue=<uuid>) or a human key (e.g. SCI-657).
+  // If only the human key is available, query /api/issues/<key> to get the UUID.
+  async function findIssueUuid() {
+    const fromUrl =
+      location.pathname.match(/\/issues\/([0-9a-f-]{36})/i)?.[1] ||
+      new URLSearchParams(location.search).get("issue")?.match(/^[0-9a-f-]{36}$/i)?.[0];
+    if (fromUrl) return fromUrl;
+
+    const identifier =
+      new URLSearchParams(location.search).get("issue")?.trim() ||
+      location.pathname.match(/\/issues\/([^/?#]+)/)?.[1]?.trim() ||
+      "";
+    if (!identifier) return "";
+
+    if (issueUuidCache.has(identifier)) return issueUuidCache.get(identifier);
+
+    try {
+      const response = await fetch(`https://api.multica.ai/api/issues/${encodeURIComponent(identifier)}`, {
+        method: "GET",
+        credentials: "include",
+        headers: buildCommentHeaders(),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const uuid = data?.id || data?.data?.id || data?.issue?.id || "";
+        if (uuid) {
+          issueUuidCache.set(identifier, uuid);
+          return uuid;
+        }
+      }
+    } catch (_error) {
+      // Fall through on network or parse error
     }
-    return latest;
+    return "";
   }
 
   // Chat pages send through the session messages API instead.
   function findChatSessionId() {
+    if (!isChatPage()) return "";
     const fromUrl = new URLSearchParams(location.search).get("session");
-    if (fromUrl && /^[0-9a-f-]{36}$/.test(fromUrl)) return fromUrl;
-    for (const entry of performance.getEntriesByType("resource")) {
-      const match = entry.name.match(/chat\/sessions\/([0-9a-f-]{36})/);
-      if (match) return match[1];
-    }
+    if (fromUrl && /^[0-9a-f-]{36}$/i.test(fromUrl)) return fromUrl;
     return "";
   }
 
@@ -1640,21 +1671,21 @@
     if (marks.length === 0) return;
 
     const content = buildMarkCommentMarkdown();
-    const chatSessionId = findChatSessionId();
+    const isChat = isChatPage();
     let url;
     let body;
-    if (chatSessionId) {
+    if (isChat) {
+      const chatSessionId = findChatSessionId();
+      if (!chatSessionId) {
+        showToast("发送失败: 未找到 Chat 会话 ID");
+        return;
+      }
       url = `https://api.multica.ai/api/chat/sessions/${chatSessionId}/messages`;
       body = { content };
     } else {
-      const issueId = findIssueUuid();
+      const issueId = await findIssueUuid();
       if (!issueId) {
-        try {
-          await navigator.clipboard.writeText(content);
-          showToast("未找到任务 ID,内容已复制到剪贴板");
-        } catch (_error) {
-          showToast("未找到任务 ID,且复制失败");
-        }
+        showToast("发送失败: 未找到任务 ID");
         return;
       }
       url = `https://api.multica.ai/api/issues/${issueId}/comments`;
@@ -1672,7 +1703,7 @@
         showToast(`发送失败 (HTTP ${response.status})`);
         return;
       }
-      showToast(chatSessionId ? "消息已发送" : "评论已发送");
+      showToast(isChat ? "消息已发送" : "评论已发送");
       clearMarks();
     } catch (_error) {
       showToast("发送失败,请检查网络");

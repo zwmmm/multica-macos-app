@@ -12,7 +12,8 @@
 
 ## 最近更新
 
-- 恢复选中操作栏样式（toolbar 容器，z-index: 100）
-- 修复发送按钮 z-index: 101 确保可见
-- 修复备注框定位（requestAnimationFrame）
-- 备注框最大宽度扩展到 680px
+- 彻底移除对 performance 全局网络记录的嗅探，按路由严格区分 Chat 与 Issue 请求
+- Issue UUID 解析支持通过 `api/issues/${identifier}` 接口精准查询
+- 未获取到有效 ID 时直接提示失败，防止误发
+- 标注卡片操作按钮外置到右上角，移除内边距挤压
+- 优化评论 Markdown 格式（去除列表标记，引用与回答空行隔离，多标注空行分割）
