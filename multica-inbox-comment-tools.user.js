@@ -195,37 +195,45 @@
         transform: translateX(-50%) translateY(0);
       }
 
+      /* Selection toolbar mirroring the native Multica bubble menu */
       #mc-selection-toolbar {
         position: fixed;
-        z-index: 90;
-        pointer-events: auto;
+        z-index: 100;
         display: flex;
         align-items: center;
-        gap: 4px;
+        gap: 1px;
+        padding: 4px;
+        border-radius: 10px;
+        background: #262628;
+        border: 1px solid rgb(250 250 250 / 0.1);
+        box-shadow: 0 4px 12px rgb(0 0 0 / 0.12), 0 0 0 1px rgb(0 0 0 / 0.04);
+        pointer-events: auto;
       }
 
-      .mc-selection-btn {
+      #mc-selection-toolbar[hidden] {
+        display: none;
+      }
+
+      #mc-selection-toolbar button {
         width: 28px;
         height: 28px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        border: 1px solid #27272a;
-        border-radius: 999px;
-        background: #18181b;
-        color: #e4e4e7;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: #fafafa;
         cursor: pointer;
-        box-shadow: 0 4px 16px rgb(0 0 0 / 0.35);
-        backdrop-filter: blur(10px);
-        transition: transform 120ms ease, background 120ms ease;
+        padding: 0;
+        transition: background 120ms ease;
       }
 
-      .mc-selection-btn:hover {
-        transform: translateY(-1px);
-        background: #27272a;
+      #mc-selection-toolbar button:hover {
+        background: rgb(250 250 250 / 0.1);
       }
 
-      .mc-selection-btn svg {
+      #mc-selection-toolbar button svg {
         width: 14px;
         height: 14px;
         stroke: currentColor;
@@ -235,49 +243,150 @@
         stroke-linejoin: round;
       }
 
-      .mc-mark-popover {
+      .mc-mark-popover,
+      .mc-mark-cards {
         position: fixed;
-        z-index: 95;
+        z-index: 100;
         pointer-events: auto;
-        width: 280px;
-        background: #18181b;
         border: 1px solid #27272a;
-        border-radius: 8px;
-        padding: 8px;
-        box-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
+        border-radius: 10px;
+        background: #18181B;
+        box-shadow: 0 14px 40px rgb(15 23 42 / 0.2);
         backdrop-filter: blur(10px);
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
+        font-family: var(--font-inter);
       }
 
-      .mc-mark-quote-preview {
-        font-size: 11px;
-        color: #a1a1aa;
-        border-left: 2px solid #3f3f46;
-        padding-left: 6px;
+      .mc-mark-popover {
+        width: max-content;
+        min-width: 180px;
+        max-width: min(680px, calc(100vw - 32px));
+        padding: 8px;
+      }
+
+      .mc-mark-popover[hidden] {
+        display: none;
+      }
+
+      .mc-mark-popover blockquote {
+        margin: 0 0 8px;
+        padding: 6px 8px;
+        border-left: 3px solid #2563eb;
+        border-radius: 4px;
+        background: rgb(37 99 235 / 0.1);
+        color: #d4d4d8;
+        font-size: 12px;
+        line-height: 17px;
+        max-height: 66px;
+        overflow: auto;
         white-space: pre-wrap;
-        max-height: 48px;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        word-break: break-word;
       }
 
-      .mc-mark-input {
-        width: 100%;
-        min-height: 54px;
-        background: #09090b;
-        border: 1px solid #27272a;
+      .mc-mark-popover textarea {
+        display: block;
+        width: auto;
+        min-width: 100%;
+        max-width: min(664px, calc(100vw - 48px));
+        height: 66px;
+        padding: 6px 8px;
+        border: 1px solid #3f3f46;
         border-radius: 6px;
+        background: #09090B;
         color: #f4f4f5;
         font-family: inherit;
         font-size: 12px;
-        padding: 6px 8px;
+        line-height: 17px;
         resize: none;
         outline: none;
       }
 
-      .mc-mark-input:focus {
-        border-color: #52525b;
+      .mc-mark-popover textarea:focus {
+        border-color: #2563eb;
+      }
+
+      .mc-mark-cards {
+        inset: 0;
+        pointer-events: none;
+        border: 0;
+        background: transparent;
+        box-shadow: none;
+        backdrop-filter: none;
+      }
+
+      .mc-mark-card {
+        position: absolute;
+        pointer-events: auto;
+        width: 200px;
+        padding: 6px 8px;
+        border: 1px solid #3f3f46;
+        border-radius: 8px;
+        background: #18181B;
+        color: #f4f4f5;
+        font-size: 11px;
+        line-height: 16px;
+        box-shadow: 0 10px 30px rgb(15 23 42 / 0.2);
+        cursor: default;
+      }
+
+      .mc-mark-card .mc-mark-card-note {
+        overflow: hidden;
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        word-break: break-word;
+      }
+
+      .mc-mark-card-actions {
+        position: absolute;
+        right: -6px;
+        top: -12px;
+        display: flex;
+        align-items: center;
+        gap: 3px;
+        padding: 2px;
+        border-radius: 6px;
+        background: #18181B;
+        border: 1px solid #3f3f46;
+        box-shadow: 0 4px 12px rgb(0 0 0 / 0.3);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 120ms ease;
+        z-index: 10;
+      }
+
+      .mc-mark-card:hover .mc-mark-card-actions,
+      .mc-mark-card:focus-within .mc-mark-card-actions {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      .mc-mark-card-btn {
+        width: 20px;
+        height: 20px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 0;
+        border-radius: 4px;
+        background: #27272a;
+        color: #e4e4e7;
+        cursor: pointer;
+        padding: 0;
+      }
+
+      .mc-mark-card-btn:hover {
+        background: #3f3f46;
+        color: #ffffff;
+      }
+
+      .mc-mark-card-btn svg {
+        width: 11px;
+        height: 11px;
+        stroke: currentColor;
+        stroke-width: 2;
+        fill: none;
+        stroke-linecap: round;
+        stroke-linejoin: round;
       }
 
       .mc-mark-highlight-layer {
@@ -296,63 +405,8 @@
       }
 
       .mc-mark-highlight[data-choice="true"] {
-        background: rgba(34, 197, 94, 0.22);
-        border-bottom: 2px solid rgba(34, 197, 94, 0.6);
-      }
-
-      .mc-mark-cards-layer {
-        position: fixed;
-        inset: 0;
-        pointer-events: none;
-        z-index: 100;
-      }
-
-      .mc-mark-card {
-        position: absolute;
-        pointer-events: auto;
-        width: 220px;
-        background: #18181b;
-        border: 1px solid #27272a;
-        border-radius: 8px;
-        padding: 8px 10px;
-        box-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
-        color: #f4f4f5;
-        font-size: 12px;
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-        transition: opacity 120ms ease;
-      }
-
-      .mc-mark-card-note {
-        word-break: break-word;
-        line-height: 1.4;
-      }
-
-      .mc-mark-card-actions {
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-        gap: 6px;
-      }
-
-      .mc-mark-card-btn {
-        background: transparent;
-        border: 0;
-        color: #a1a1aa;
-        cursor: pointer;
-        padding: 2px 4px;
-        font-size: 11px;
-        border-radius: 4px;
-      }
-
-      .mc-mark-card-btn:hover {
-        color: #f4f4f5;
-        background: #27272a;
-      }
-
-      .mc-mark-card-btn.mc-mark-card-del:hover {
-        color: #ef4444;
+        background: rgb(74 222 128 / 0.25);
+        border-bottom: 2px solid rgb(74 222 128 / 0.7);
       }
     `;
     document.head.appendChild(style);
@@ -367,7 +421,7 @@
     markHighlightLayer.className = "mc-mark-highlight-layer";
 
     markCardsLayer = document.createElement("div");
-    markCardsLayer.className = "mc-mark-cards-layer";
+    markCardsLayer.className = "mc-mark-cards";
 
     selectionToolbar = document.createElement("div");
     selectionToolbar.id = "mc-selection-toolbar";
@@ -397,11 +451,10 @@
     markPopover.className = "mc-mark-popover";
     markPopover.hidden = true;
 
-    const quotePreview = document.createElement("div");
+    const quotePreview = document.createElement("blockquote");
     quotePreview.className = "mc-mark-quote-preview";
 
     markPopoverInput = document.createElement("textarea");
-    markPopoverInput.className = "mc-mark-input";
     markPopoverInput.placeholder = "输入批注内容... (Cmd/Ctrl+Enter 提交)";
     markPopoverInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
@@ -528,6 +581,7 @@
     if (markPopover && !markPopover.hidden) return;
     if (!isMarkablePage()) {
       hideSelectionButtons();
+      if (selectionToolbar) selectionToolbar.hidden = true;
       return;
     }
 
@@ -536,6 +590,7 @@
     lastSelection = pick;
     if (!pick) {
       hideSelectionButtons();
+      if (selectionToolbar) selectionToolbar.hidden = true;
       return;
     }
 
@@ -543,10 +598,16 @@
     selectionBtn.hidden = false;
     choiceBtn.hidden = false;
     selectionToolbar.hidden = false;
-    const top = `${Math.max(8, rect.top - 36)}px`;
-    const selectionLeft = Math.max(8, Math.min(window.innerWidth - 38, rect.right - 15));
-    selectionToolbar.style.left = `${selectionLeft}px`;
-    selectionToolbar.style.top = top;
+
+    // Center toolbar horizontally directly above the selection
+    const toolbarWidth = selectionToolbar.offsetWidth || 66;
+    const toolbarHeight = selectionToolbar.offsetHeight || 36;
+    const centerX = (rect.left + rect.right) / 2;
+    const left = Math.max(8, Math.min(window.innerWidth - toolbarWidth - 8, centerX - toolbarWidth / 2));
+    const top = Math.max(8, rect.top - toolbarHeight - 8);
+
+    selectionToolbar.style.left = `${Math.round(left)}px`;
+    selectionToolbar.style.top = `${Math.round(top)}px`;
   }
 
   function pickSelectableRange(selection) {
@@ -667,7 +728,7 @@
       removeMark(pendingMark);
     } else {
       pendingMark.note = note;
-      renderMarkCards();
+      renderMarkCard(pendingMark);
     }
     pendingMark = null;
     markPopover.hidden = true;
@@ -691,7 +752,7 @@
     hideSelectionButtons();
 
     if (mark) {
-      renderMarkCards();
+      renderMarkCard(mark);
       if (sendButton) sendButton.hidden = false;
       showToast("已添加方案选择标记");
     }
@@ -702,8 +763,8 @@
     mark.card?.remove();
     marks = marks.filter((m) => m.id !== mark.id);
     if (sendButton) sendButton.hidden = marks.length === 0;
-    renderMarkCards();
     renderMarkHighlights();
+    positionMarkCards();
   }
 
   function createMark(pick, note, choice = false) {
@@ -762,95 +823,107 @@
           r.setStart(textNode, idx);
           r.setEnd(textNode, idx + mark.quote.length);
           mark.range = r;
-          return;
+          return true;
         }
       }
     } catch (_err) {}
+    return false;
   }
 
   function renderMarkHighlights() {
     if (!markHighlightLayer) return;
-    markHighlightLayer.replaceChildren();
-
-    marks.forEach((mark) => {
-      relocateMark(mark);
-      if (!mark.range?.startContainer.isConnected) return;
+    const boxes = [];
+    for (const mark of marks) {
+      const alive = mark.range?.startContainer.isConnected || relocateMark(mark);
+      if (!alive) continue;
       const rects = Array.from(mark.range.getClientRects());
-      rects.forEach((rect) => {
-        if (rect.width === 0 || rect.height === 0) return;
-        const hl = document.createElement("div");
-        hl.className = "mc-mark-highlight";
-        hl.dataset.choice = String(mark.choice);
-        hl.style.left = `${rect.left}px`;
-        hl.style.top = `${rect.top}px`;
-        hl.style.width = `${rect.width}px`;
-        hl.style.height = `${rect.height}px`;
-        markHighlightLayer.appendChild(hl);
-      });
-    });
+      for (const rect of rects) {
+        if (rect.width === 0 || rect.height === 0) continue;
+        const box = document.createElement("div");
+        box.className = "mc-mark-highlight";
+        if (mark.choice) box.dataset.choice = "true";
+        box.style.left = `${rect.left}px`;
+        box.style.top = `${rect.top}px`;
+        box.style.width = `${rect.width}px`;
+        box.style.height = `${rect.height}px`;
+        boxes.push(box);
+      }
+    }
+    markHighlightLayer.replaceChildren(...boxes);
   }
 
-  function renderMarkCards() {
+  function renderMarkCard(mark) {
     if (!markCardsLayer) return;
-    markCardsLayer.replaceChildren();
+    mark.card?.remove();
 
-    marks.forEach((mark) => {
-      if (!mark.note) return;
-      relocateMark(mark);
-      if (!mark.range?.startContainer.isConnected) return;
+    const card = document.createElement("div");
+    card.className = "mc-mark-card";
+    card.dataset.markId = mark.id;
 
-      const card = document.createElement("div");
-      card.className = "mc-mark-card";
-      card.dataset.markId = mark.id;
+    const note = document.createElement("div");
+    note.className = "mc-mark-card-note";
+    note.textContent = mark.note;
+    note.title = mark.note;
 
-      const note = document.createElement("div");
-      note.className = "mc-mark-card-note";
-      note.textContent = mark.note;
+    const actions = document.createElement("div");
+    actions.className = "mc-mark-card-actions";
+    actions.append(createCardAction("edit", mark), createCardAction("delete", mark));
 
-      const actions = document.createElement("div");
-      actions.className = "mc-mark-card-actions";
+    card.append(note, actions);
+    markCardsLayer.appendChild(card);
+    mark.card = card;
+    positionMarkCards();
+  }
 
-      const editBtn = document.createElement("button");
-      editBtn.className = "mc-mark-card-btn";
-      editBtn.textContent = "编辑";
-      editBtn.addEventListener("click", () => {
+  function createCardAction(action, mark) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `mc-mark-card-btn mc-mark-card-${action}`;
+    const label = action === "edit" ? "编辑标记" : "删除标记";
+    button.title = label;
+    button.setAttribute("aria-label", label);
+    button.innerHTML =
+      action === "edit"
+        ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>'
+        : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"></path><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path></svg>';
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (action === "edit") {
+        if (pendingMark && pendingMark !== mark) cancelPendingMark();
+        markPopoverAnchor = null;
         pendingMark = mark;
         openMarkEditor(mark);
-      });
-
-      const delBtn = document.createElement("button");
-      delBtn.className = "mc-mark-card-btn mc-mark-card-del";
-      delBtn.textContent = "删除";
-      delBtn.addEventListener("click", () => removeMark(mark));
-
-      actions.append(editBtn, delBtn);
-      card.append(note, actions);
-      markCardsLayer.appendChild(card);
-      mark.card = card;
+      } else {
+        removeMark(mark);
+      }
     });
-
-    positionMarkCards();
+    return button;
   }
 
   function positionMarkCards() {
-    marks.forEach((mark) => {
-      if (!mark.card || !mark.range?.startContainer.isConnected) return;
+    if (!markCardsLayer || marks.length === 0) return;
+    for (const mark of marks) {
+      if (!mark.card) continue;
+      const alive = mark.range?.startContainer.isConnected || relocateMark(mark);
+      mark.card.hidden = !alive;
+      if (!alive) continue;
       const rect = mark.range.getBoundingClientRect();
-      const card = mark.card;
-      const width = card.offsetWidth || 220;
-      const left = Math.max(8, Math.min(window.innerWidth - width - 8, rect.right + 12));
-      const top = Math.max(8, rect.top);
-      card.style.left = `${left}px`;
-      card.style.top = `${top}px`;
-    });
+      mark.card.style.left = `${Math.round(
+        Math.max(8, Math.min(window.innerWidth - 208, rect.left + rect.width / 2 - 100))
+      )}px`;
+      mark.card.style.top = `${Math.round(Math.max(8, rect.top - mark.card.offsetHeight - 8))}px`;
+    }
   }
 
   function positionMarkOverlays() {
-    renderMarkHighlights();
-    positionMarkCards();
-    if (pendingMark && !markPopover.hidden) {
+    if (marks.length === 0 && (!pendingMark || markPopover?.hidden)) {
+      return;
+    }
+    if (markPopover && !markPopover.hidden && pendingMark) {
       positionMarkPopover();
     }
+    positionMarkCards();
+    renderMarkHighlights();
   }
 
   function showToast(message) {
@@ -891,67 +964,109 @@
     return buildMarkComment(marks);
   }
 
+  function isChatPage() {
+    return /\/chat(\/|$)/.test(location.pathname);
+  }
+
+  const issueUuidCache = new Map();
+
+  async function findIssueUuid() {
+    const fromUrl =
+      location.pathname.match(/\/issues\/([0-9a-f-]{36})/i)?.[1] ||
+      new URLSearchParams(location.search).get("issue")?.match(/^[0-9a-f-]{36}$/i)?.[0];
+    if (fromUrl) return fromUrl;
+
+    const identifier =
+      new URLSearchParams(location.search).get("issue")?.trim() ||
+      location.pathname.match(/\/issues\/([^/?#]+)/)?.[1]?.trim() ||
+      "";
+    if (!identifier) return "";
+
+    if (issueUuidCache.has(identifier)) return issueUuidCache.get(identifier);
+
+    try {
+      const response = await fetch(`https://api.multica.ai/api/issues/${encodeURIComponent(identifier)}`, {
+        method: "GET",
+        credentials: "include",
+        headers: buildCommentHeaders(),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const uuid = data?.id || data?.data?.id || data?.issue?.id || "";
+        if (uuid) {
+          issueUuidCache.set(identifier, uuid);
+          return uuid;
+        }
+      }
+    } catch (_error) {
+      // Fall through
+    }
+    return "";
+  }
+
+  function findChatSessionId() {
+    if (!isChatPage()) return "";
+    const fromUrl = new URLSearchParams(location.search).get("session");
+    if (fromUrl && /^[0-9a-f-]{36}$/i.test(fromUrl)) return fromUrl;
+    return "";
+  }
+
+  function buildCommentHeaders() {
+    const row = document.cookie.split("; ").find((r) => r.startsWith("multica_csrf="));
+    const csrf = row ? row.slice("multica_csrf=".length) : "";
+    const headers = {
+      "Content-Type": "application/json",
+      "X-Client-OS": "macos",
+      "X-Client-Platform": "web",
+      "X-Request-ID": Math.random().toString(16).slice(2, 10),
+    };
+    if (csrf) headers["X-CSRF-Token"] = csrf;
+    const workspaceSlug = location.pathname.split("/")[1];
+    if (workspaceSlug) headers["X-Workspace-Slug"] = workspaceSlug;
+    return headers;
+  }
+
   async function sendMarkComment() {
     if (marks.length === 0) return;
 
-    const issueKey = getIssueKeyFromUrl(location.href);
-    if (!issueKey) {
-      showToast("未检测到当前 Issue");
-      return;
-    }
-
     const content = buildMarkCommentMarkdown();
-    if (!content) return;
-
-    sendButton.disabled = true;
-    showToast("正在发送评论...");
+    const isChat = isChatPage();
+    let url;
+    let body;
+    if (isChat) {
+      const chatSessionId = findChatSessionId();
+      if (!chatSessionId) {
+        showToast("发送失败: 未找到 Chat 会话 ID");
+        return;
+      }
+      url = `https://api.multica.ai/api/chat/sessions/${chatSessionId}/messages`;
+      body = { content };
+    } else {
+      const issueId = await findIssueUuid();
+      if (!issueId) {
+        showToast("发送失败: 未找到任务 ID");
+        return;
+      }
+      url = `https://api.multica.ai/api/issues/${issueId}/comments`;
+      body = { content, type: "comment" };
+    }
 
     try {
-      const isChat = issueKey.startsWith("chat:");
-      const sessionId = isChat ? issueKey.slice(5) : null;
-      const csrfToken = getCsrfToken();
-      const workspaceSlug = getWorkspaceSlug();
-
-      const url = isChat
-        ? `/api/workspaces/${workspaceSlug}/chat/${sessionId}/messages`
-        : `/api/workspaces/${workspaceSlug}/issues/${issueKey}/comments`;
-
       const response = await fetch(url, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
-        },
         credentials: "include",
-        body: JSON.stringify({
-          content,
-          body: content,
-          text: content,
-        }),
+        headers: buildCommentHeaders(),
+        body: JSON.stringify(body),
       });
-
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        showToast(`发送失败 (HTTP ${response.status})`);
+        return;
       }
-
-      showToast("评论发送成功！");
+      showToast(isChat ? "消息已发送" : "评论已发送");
       clearMarks();
-    } catch (err) {
-      showToast(`发送失败: ${err.message || "网络错误"}`);
-    } finally {
-      sendButton.disabled = false;
+    } catch (_error) {
+      showToast("发送失败,请检查网络");
     }
-  }
-
-  function getCsrfToken() {
-    const match = document.cookie.match(/(?:^|;\s*)(?:csrf_token|XSRF-TOKEN|csrfToken)=([^;]+)/);
-    return match ? decodeURIComponent(match[1]) : "";
-  }
-
-  function getWorkspaceSlug() {
-    const path = location.pathname;
-    const parts = path.split("/").filter(Boolean);
-    return parts[0] || "default";
   }
 
   if (document.readyState === "loading") {

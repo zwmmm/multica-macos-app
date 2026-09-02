@@ -84,18 +84,18 @@ test("deleting a mark detaches its range before repainting highlights", () => {
 
 test("highlights paint via an own overlay layer and relocate", () => {
   assert.match(source, /function renderMarkHighlights\(\)/);
-  assert.match(source, /markHighlightLayer\.replaceChildren\(\)/);
+  assert.match(source, /markHighlightLayer\.replaceChildren\(\.\.\.boxes\)/);
   assert.doesNotMatch(source, /CSS\.highlights/);
   assert.match(source, /function relocateMark\(mark\)/);
   assert.match(source, /function buildAnchor\(range, quote\)/);
 });
 
 test("sending posts to the API with cookie CSRF and chat-aware query", () => {
-  assert.match(source, /function getCsrfToken\(\)/);
-  assert.match(source, /"X-CSRF-Token": csrfToken/);
+  assert.match(source, /function buildCommentHeaders\(\)/);
+  assert.match(source, /headers\["X-CSRF-Token"\] = csrf/);
   assert.match(source, /isChat/);
-  assert.match(source, /api\/workspaces\/\$\{workspaceSlug\}\/issues\/\$\{issueKey\}\/comments/);
-  assert.match(source, /api\/workspaces\/\$\{workspaceSlug\}\/chat\/\$\{sessionId\}\/messages/);
+  assert.match(source, /api\/issues\/\$\{issueId\}\/comments/);
+  assert.match(source, /api\/chat\/sessions\/\$\{chatSessionId\}\/messages/);
 });
 
 test("opening the mark editor hides the selection buttons", () => {
@@ -110,13 +110,14 @@ test("opening a new mark editor anchors the popover to the selection toolbar", (
 
 test("hover cards expose edit and delete actions", () => {
   assert.match(source, /mc-mark-card-actions/);
-  assert.match(source, /mc-mark-card-del/);
+  assert.match(source, /createCardAction\("delete", mark\)/);
+  assert.match(source, /createCardAction\("edit", mark\)/);
 });
 
 test("cards show only the note, dark-themed, z-index 100, no orange", () => {
   assert.doesNotMatch(source, /mc-mark-card-quote/);
   assert.match(source, /\.mc-mark-card-note/);
-  assert.match(source, /\.mc-mark-card \{[^}]*background:\s*#18181b/s);
+  assert.match(source, /\.mc-mark-card \{[^}]*background:\s*#18181b/si);
   assert.match(source, /z-index:\s*100;/);
 });
 
@@ -127,13 +128,15 @@ test("choice marks commit instantly with a preset note and green highlight", () 
   assert.match(source, /\.mc-mark-highlight\[data-choice="true"\]/);
 });
 
-test("the choice button sits next to the mark button on selection", () => {
+test("the choice button sits next to the mark button on selection centered above", () => {
   assert.match(source, /choiceBtn = document\.createElement\("button"\)/);
   assert.match(source, /selectionToolbar\.append\(selectionBtn, choiceBtn\)/);
   assert.match(source, /selectionBtn\.hidden = false;\s*\n\s*choiceBtn\.hidden = false;\s*\n\s*selectionToolbar\.hidden = false;/);
   assert.match(source, /id = "mc-selection-toolbar"/);
-  assert.match(source, /const selectionLeft = Math\.max\(8, Math\.min\(window\.innerWidth - 38, rect\.right - 15\)\)/);
-  assert.match(source, /selectionToolbar\.style\.left = `\$\{selectionLeft\}px`/);
+  assert.match(source, /const centerX = \(rect\.left \+ rect\.right\) \/ 2;/);
+  assert.match(source, /const left = Math\.max\(8, Math\.min\(window\.innerWidth - toolbarWidth - 8, centerX - toolbarWidth \/ 2\)\);/);
+  assert.match(source, /selectionToolbar\.style\.left = `\$\{Math\.round\(left\)\}px`;/);
+  assert.match(source, /selectionToolbar\.style\.top = `\$\{Math\.round\(top\)\}px`;/);
 });
 
 test("chat pages and issue pages are markable", () => {
