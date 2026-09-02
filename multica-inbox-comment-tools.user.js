@@ -6,23 +6,11 @@
 
   const ROOT_ID = "mc-comment-tools";
   const STYLE_ID = "mc-comment-tools-style";
-  const COMMENT_ID_PREFIX = "comment-";
   const MARK_CLASS = "mc-mark";
-  const RESCAN_DELAY_MS = 180;
-  const HIGHLIGHT_MS = 2200;
   const CHOICE_NOTE = "✅ 选择这个方案";
 
   let root;
-  let timelineList;
-  let countNode;
   let bottomButton;
-  let timelineButton;
-  let timelinePanel;
-  let collapsed = true;
-  let rescanTimer = 0;
-  let activeCommentId = "";
-  let lastIssueKey = "";
-  let lastTimelineSignature = "";
   let marks = [];
   let pendingMark = null;
   let lastSelection = null;
@@ -46,48 +34,55 @@
   let toastTimer = 0;
   let overlayRaf = 0;
 
+  function isEditableOrInput(node) {
+    if (!(node instanceof Element)) return false;
+    return Boolean(
+      node.closest(
+        `#${ROOT_ID}, #mc-toast, #mc-selection-toolbar, input, textarea, select, [contenteditable], [role="textbox"], [role="searchbox"], .ProseMirror, .tiptap, .cm-editor, .monaco-editor`
+      )
+    );
+  }
+
   function install() {
     injectStyle();
     buildUi();
-    resetIssueTools();
-    scheduleRescan();
+    syncPageState();
 
-    const observer = new MutationObserver((mutations) => {
-      let relevantChange = false;
-      for (let i = 0; i < mutations.length; i++) {
-        const mutation = mutations[i];
-        const target = mutation.target;
-        if (target instanceof Element && target.closest(`#${ROOT_ID}, #mc-toast, #mc-selection-toolbar`)) {
-          continue;
-        }
-        if (mutation.type === "childList") {
-          relevantChange = true;
-          break;
-        }
-        if (mutation.type === "attributes") {
-          if (mutation.attributeName === "id" || (target instanceof HTMLElement && target.id?.startsWith(COMMENT_ID_PREFIX))) {
-            relevantChange = true;
-            break;
-          }
-        }
-      }
-      if (relevantChange) scheduleRescan();
-    });
-    observer.observe(document.documentElement, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ["id", "class"],
-    });
+    // Hook SPA navigation without polling or DOM observers
+    const wrapHistory = (type) => {
+      const orig = history[type];
+      return function (...args) {
+        const result = orig.apply(this, args);
+        syncPageState();
+        return result;
+      };
+    };
+    history.pushState = wrapHistory("pushState");
+    history.replaceState = wrapHistory("replaceState");
+    window.addEventListener("popstate", syncPageState);
 
-    window.addEventListener("popstate", scheduleRescan);
-    window.setInterval(() => {
-      const issueKey = getIssueKeyFromUrl(location.href);
-      if (issueKey !== lastIssueKey) {
-        lastIssueKey = issueKey;
-        scheduleRescan();
-      }
-    }, 1000);
+    document.addEventListener("selectionchange", scheduleSelectionCheck);
+    document.addEventListener("scroll", schedulePositionMarkOverlays, { capture: true, passive: true });
+    window.addEventListener("resize", schedulePositionMarkOverlays, { passive: true });
+  }
+
+  function syncPageState() {
+    const pageKey = getIssueKeyFromUrl(location.href);
+    if (!pageKey) {
+      if (root) root.hidden = true;
+      if (bottomButton) bottomButton.hidden = true;
+      if (sendButton) sendButton.hidden = true;
+      clearMarks();
+      marksPageKey = "";
+      return;
+    }
+
+    if (root) root.hidden = false;
+    if (bottomButton) bottomButton.hidden = false;
+    if (pageKey !== marksPageKey) {
+      marksPageKey = pageKey;
+      clearMarks();
+    }
   }
 
   function injectStyle() {
@@ -110,17 +105,13 @@
         box-sizing: border-box;
       }
 
-      .mc-tools-btn,
-      .mc-timeline {
+      .mc-tools-btn {
         z-index: 100;
         pointer-events: auto;
         border: 1px solid #27272a;
         background: #18181B;
         box-shadow: 0 12px 36px rgb(15 23 42 / 0.16);
         backdrop-filter: blur(10px);
-      }
-
-      .mc-tools-btn {
         position: relative;
         width: 40px;
         height: 40px;
@@ -134,10 +125,6 @@
       }
 
       .mc-scroll-bottom-btn {
-        order: 3;
-      }
-
-      .mc-timeline-trigger {
         order: 2;
       }
 
@@ -166,11 +153,6 @@
         background: #27272a;
       }
 
-      .mc-tools-btn[data-active="true"] {
-        border-color: #3f3f46;
-        background: #27272a;
-      }
-
       .mc-tools-btn svg {
         width: 18px;
         height: 18px;
@@ -181,211 +163,69 @@
         stroke-linejoin: round;
       }
 
-      .mc-timeline {
+      .mc-tools-btn[hidden],
+      #mc-selection-toolbar[hidden],
+      .mc-mark-card[hidden],
+      #${ROOT_ID} [hidden] {
+        display: none !important;
+      }
+
+      #mc-toast {
         position: fixed;
-        right: 65px;
-        bottom: 75px;
-        width: min(240px, calc(100vw - 84px));
-        max-height: min(54vh, 520px);
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-        border-radius: 8px;
-      }
-
-      .mc-timeline[hidden] {
-        display: none;
-      }
-
-      .mc-timeline-head {
-        min-height: 36px;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 10px;
-        border-bottom: 1px solid #27272a;
-      }
-
-      .mc-timeline-title {
-        min-width: 0;
-        flex: 1;
-        font-size: 12px;
-        font-weight: 650;
-        line-height: 1;
-        color: #f4f4f5;
-      }
-
-      .mc-timeline-count {
-        color: #a1a1aa;
+        left: 50%;
+        bottom: 32px;
+        transform: translateX(-50%) translateY(20px);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 180ms ease, transform 180ms ease;
+        z-index: 9999;
+        font-family: var(--font-inter);
+        font-size: 13px;
         font-weight: 500;
-      }
-
-      .mc-timeline-toggle {
-        width: 24px;
-        height: 24px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        border: 0;
-        border-radius: 6px;
-        background: transparent;
-        color: #d4d4d8;
-        cursor: pointer;
-      }
-
-      .mc-timeline-toggle:hover {
-        background: #27272a;
-      }
-
-      .mc-timeline-list {
-        min-height: 0;
-        overflow: auto;
-        padding: 6px;
-      }
-
-      .mc-timeline-item {
-        width: 100%;
-        display: grid;
-        grid-template-columns: 18px minmax(0, 1fr);
-        gap: 7px;
-        align-items: stretch;
-        border: 0;
-        border-radius: 6px;
-        padding: 6px;
-        background: transparent;
-        color: inherit;
-        text-align: left;
-        cursor: pointer;
-      }
-
-      .mc-timeline-item:hover,
-      .mc-timeline-item[data-active="true"] {
-        background: #27272a;
-      }
-
-      .mc-timeline-dot {
-        position: relative;
-        width: 18px;
-        min-height: 36px;
-        align-self: stretch;
-      }
-
-      .mc-timeline-dot::before {
-        content: "";
-        position: absolute;
-        left: 8px;
-        top: 16px;
-        bottom: -14px;
-        width: 1px;
-        background: #52525b;
-      }
-
-      .mc-timeline-item:last-child .mc-timeline-dot::before {
-        display: none;
-      }
-
-      .mc-timeline-dot::after {
-        content: "";
-        position: absolute;
-        left: 4px;
-        top: 5px;
-        width: 9px;
-        height: 9px;
-        border-radius: 999px;
-        background: #a1a1aa;
-        box-shadow: 0 0 0 3px #3f3f46;
-      }
-
-      .mc-timeline-item[data-active="true"] .mc-timeline-dot::after {
-        background: #2563eb;
-        box-shadow: 0 0 0 3px rgb(37 99 235 / 0.18);
-      }
-
-      .mc-timeline-meta {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        min-width: 0;
-        font-size: 11px;
-        line-height: 15px;
-        color: #a1a1aa;
-      }
-
-      .mc-timeline-index {
-        min-width: 0;
-        max-width: 88px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        flex: 0 1 auto;
-        color: #e4e4e7;
-        font-weight: 650;
-      }
-
-      .mc-timeline-time {
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .mc-timeline-preview {
-        margin-top: 1px;
-        overflow: hidden;
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
-        font-size: 12px;
-        line-height: 16px;
         color: #f4f4f5;
-        word-break: break-word;
+        background: #18181b;
+        border: 1px solid #27272a;
+        border-radius: 8px;
+        padding: 8px 14px;
+        box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
       }
 
-      .mc-comment-highlight {
-        background-color: #1A1E25 !important;
-        transition: background-color 180ms ease !important;
+      #mc-toast[data-show] {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
       }
 
-      /* Selection toolbar mirroring the native Multica bubble menu
-         (measured: bg oklch(0.235)=#262628, border white/10%, radius 10px,
-         padding 4px, gap 1px, buttons 28x28 radius 8px, icons 14px white). */
       #mc-selection-toolbar {
         position: fixed;
-        z-index: 100;
+        z-index: 90;
+        pointer-events: auto;
         display: flex;
         align-items: center;
-        gap: 1px;
-        padding: 4px;
-        border-radius: 10px;
-        background: #262628;
-        border: 1px solid rgb(250 250 250 / 0.1);
-        box-shadow: 0 4px 12px rgb(0 0 0 / 0.12), 0 0 0 1px rgb(0 0 0 / 0.04);
-        pointer-events: auto;
+        gap: 4px;
       }
 
-      #mc-selection-toolbar[hidden] {
-        display: none;
-      }
-
-      #mc-selection-toolbar button {
+      .mc-selection-btn {
         width: 28px;
         height: 28px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        border: 0;
-        border-radius: 8px;
-        background: transparent;
-        color: #fafafa;
+        border: 1px solid #27272a;
+        border-radius: 999px;
+        background: #18181b;
+        color: #e4e4e7;
         cursor: pointer;
-        padding: 0;
+        box-shadow: 0 4px 16px rgb(0 0 0 / 0.35);
+        backdrop-filter: blur(10px);
+        transition: transform 120ms ease, background 120ms ease;
       }
 
-      #mc-selection-toolbar button:hover {
-        background: rgb(250 250 250 / 0.1);
+      .mc-selection-btn:hover {
+        transform: translateY(-1px);
+        background: #27272a;
       }
 
-      #mc-selection-toolbar button svg {
+      .mc-selection-btn svg {
         width: 14px;
         height: 14px;
         stroke: currentColor;
@@ -395,390 +235,159 @@
         stroke-linejoin: round;
       }
 
-      .mc-mark-popover,
-      .mc-mark-cards {
-        position: fixed;
-        z-index: 100;
-        pointer-events: auto;
-        border: 1px solid #27272a;
-        border-radius: 10px;
-        background: #18181B;
-        box-shadow: 0 14px 40px rgb(15 23 42 / 0.2);
-        backdrop-filter: blur(10px);
-        font-family: var(--font-inter);
-      }
-
-      /* Author display rules override the UA [hidden] default, so hide explicitly. */
-      .mc-tools-btn[hidden],
-      .mc-mark-card[hidden] {
-        display: none;
-      }
-
       .mc-mark-popover {
-        /* Fit content up to a cap; short quotes no longer stretch to full width. */
-        width: max-content;
-        min-width: 180px;
-        max-width: min(680px, calc(100vw - 32px));
+        position: fixed;
+        z-index: 95;
+        pointer-events: auto;
+        width: 280px;
+        background: #18181b;
+        border: 1px solid #27272a;
+        border-radius: 8px;
         padding: 8px;
+        box-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
+        backdrop-filter: blur(10px);
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
       }
 
-      .mc-mark-popover[hidden] {
-        display: none;
-      }
-
-      .mc-mark-popover blockquote {
-        margin: 0 0 8px;
-        padding: 6px 8px;
-        border-left: 3px solid #2563eb;
-        border-radius: 4px;
-        background: rgb(37 99 235 / 0.1);
-        color: #d4d4d8;
-        font-size: 12px;
-        line-height: 17px;
-        max-height: 66px;
-        overflow: auto;
+      .mc-mark-quote-preview {
+        font-size: 11px;
+        color: #a1a1aa;
+        border-left: 2px solid #3f3f46;
+        padding-left: 6px;
         white-space: pre-wrap;
-        word-break: break-word;
+        max-height: 48px;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
-      .mc-mark-popover textarea {
-        display: block;
-        /* The popover is max-content sized; the textarea's intrinsic cols
-           width would otherwise dominate it. Track the quote width instead. */
-        width: auto;
-        min-width: 100%;
-        max-width: min(664px, calc(100vw - 48px));
-        height: 66px;
-        padding: 6px 8px;
-        border: 1px solid #3f3f46;
+      .mc-mark-input {
+        width: 100%;
+        min-height: 54px;
+        background: #09090b;
+        border: 1px solid #27272a;
         border-radius: 6px;
-        background: #09090B;
         color: #f4f4f5;
         font-family: inherit;
         font-size: 12px;
-        line-height: 17px;
+        padding: 6px 8px;
         resize: none;
         outline: none;
       }
 
-      .mc-mark-popover textarea:focus {
-        border-color: #2563eb;
+      .mc-mark-input:focus {
+        border-color: #52525b;
       }
 
-      .mc-mark-cards {
-        /* Full-viewport origin so absolute children map 1:1 to viewport coords. */
+      .mc-mark-highlight-layer {
+        position: fixed;
         inset: 0;
         pointer-events: none;
-        border: 0;
-        background: transparent;
-        box-shadow: none;
-        backdrop-filter: none;
+        z-index: 20;
+      }
+
+      .mc-mark-highlight {
+        position: absolute;
+        background: rgba(234, 179, 8, 0.22);
+        border-bottom: 2px solid rgba(234, 179, 8, 0.6);
+        border-radius: 2px;
+        pointer-events: none;
+      }
+
+      .mc-mark-highlight[data-choice="true"] {
+        background: rgba(34, 197, 94, 0.22);
+        border-bottom: 2px solid rgba(34, 197, 94, 0.6);
+      }
+
+      .mc-mark-cards-layer {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 100;
       }
 
       .mc-mark-card {
         position: absolute;
         pointer-events: auto;
-        width: 200px;
-        padding: 6px 8px;
-        border: 1px solid #3f3f46;
+        width: 220px;
+        background: #18181b;
+        border: 1px solid #27272a;
         border-radius: 8px;
-        background: #18181B;
+        padding: 8px 10px;
+        box-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
         color: #f4f4f5;
-        font-size: 11px;
-        line-height: 16px;
-        box-shadow: 0 10px 30px rgb(15 23 42 / 0.2);
-        cursor: default;
+        font-size: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        transition: opacity 120ms ease;
       }
 
-      .mc-mark-card .mc-mark-card-note {
-        overflow: hidden;
-        display: -webkit-box;
-        -webkit-line-clamp: 3;
-        -webkit-box-orient: vertical;
+      .mc-mark-card-note {
         word-break: break-word;
+        line-height: 1.4;
       }
 
       .mc-mark-card-actions {
-        position: absolute;
-        right: -6px;
-        top: -12px;
         display: flex;
         align-items: center;
-        gap: 3px;
-        padding: 2px;
-        border-radius: 6px;
-        background: #18181B;
-        border: 1px solid #3f3f46;
-        box-shadow: 0 4px 12px rgb(0 0 0 / 0.3);
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 120ms ease;
-        z-index: 10;
-      }
-
-      .mc-mark-card:hover .mc-mark-card-actions,
-      .mc-mark-card:focus-within .mc-mark-card-actions {
-        opacity: 1;
-        pointer-events: auto;
+        justify-content: flex-end;
+        gap: 6px;
       }
 
       .mc-mark-card-btn {
-        width: 20px;
-        height: 20px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
+        background: transparent;
         border: 0;
-        border-radius: 4px;
-        background: #27272a;
-        color: #e4e4e7;
+        color: #a1a1aa;
         cursor: pointer;
-        padding: 0;
+        padding: 2px 4px;
+        font-size: 11px;
+        border-radius: 4px;
       }
 
       .mc-mark-card-btn:hover {
-        background: #3f3f46;
-        color: #ffffff;
-      }
-
-      .mc-mark-card-btn svg {
-        width: 11px;
-        height: 11px;
-        stroke: currentColor;
-        stroke-width: 2;
-        fill: none;
-        stroke-linecap: round;
-        stroke-linejoin: round;
-      }
-
-      .mc-mark-send-btn {
-        position: absolute;
-        right: -30px;
-        bottom: 0;
-        width: 24px;
-        height: 24px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        border: 1px solid #27272a;
-        border-radius: 999px;
-        background: #18181B;
-        color: #e4e4e7;
-        cursor: pointer;
-      }
-
-      .mc-mark-send-btn:hover {
+        color: #f4f4f5;
         background: #27272a;
       }
 
-      .mc-mark-send-btn svg {
-        width: 13px;
-        height: 13px;
-        stroke: currentColor;
-        stroke-width: 2;
-        fill: none;
-        stroke-linecap: round;
-        stroke-linejoin: round;
-      }
-
-      #mc-toast {
-        position: fixed;
-        left: 50%;
-        bottom: 34px;
-        transform: translateX(-50%) translateY(8px);
-        z-index: 100;
-        padding: 8px 14px;
-        border: 1px solid #27272a;
-        border-radius: 8px;
-        background: #18181B;
-        color: #f4f4f5;
-        font-family: var(--font-inter);
-        font-size: 12px;
-        opacity: 0;
-        transition: opacity 160ms ease, transform 160ms ease;
-        pointer-events: none;
-      }
-
-      #mc-toast[data-show] {
-        opacity: 1;
-        transform: translateX(-50%);
-      }
-
-      /* Mark overlays are translucent boxes drawn above the text, PDF
-         text-layer style. Owned by our own layer so show/hide is
-         deterministic (WebKit's ::highlight() repainting is unreliable). */
-      .mc-mark-highlights {
-        position: fixed;
-        inset: 0;
-        overflow: hidden;
-        pointer-events: none;
-      }
-
-      .mc-mark-highlight {
-        position: absolute;
-        border-radius: 3px;
-        background-color: rgb(250 204 21 / 0.5);
-      }
-
-      .mc-mark-highlight[data-choice] {
-        background-color: rgb(74 222 128 / 0.45);
-      }
-
-      @media (prefers-color-scheme: dark) {
-        #${ROOT_ID} {
-          color: #e5e7eb;
-        }
-
-        .mc-tools-btn,
-        .mc-timeline {
-          border-color: #27272a;
-          background: #18181B;
-          box-shadow: 0 12px 36px rgb(0 0 0 / 0.36);
-        }
-
-        .mc-tools-btn {
-          color: #e2e8f0;
-        }
-
-        .mc-tools-btn:hover,
-        .mc-timeline-toggle:hover,
-        .mc-timeline-item:hover,
-        .mc-timeline-item[data-active="true"] {
-          background: #27272a;
-        }
-
-        .mc-timeline-head {
-          border-bottom-color: #27272a;
-        }
-
-        .mc-timeline-title,
-        .mc-timeline-index,
-        .mc-timeline-preview {
-          color: #e2e8f0;
-        }
-
-        .mc-timeline-count,
-        .mc-timeline-toggle,
-        .mc-timeline-meta,
-        .mc-timeline-time {
-          color: #94a3b8;
-        }
-
-        .mc-timeline-dot::before {
-          background: #475569;
-        }
-
-        .mc-timeline-dot::after {
-          background: #94a3b8;
-          box-shadow: 0 0 0 3px #334155;
-        }
-      }
-
-      @media (max-width: 720px) {
-        .mc-tools-btn {
-          right: auto;
-        }
-
-        .mc-actions {
-          right: 8px;
-          bottom: 76px;
-        }
-
-        .mc-timeline {
-          right: 56px;
-          bottom: 76px;
-          width: min(220px, calc(100vw - 72px));
-          max-height: 42vh;
-        }
+      .mc-mark-card-btn.mc-mark-card-del:hover {
+        color: #ef4444;
       }
     `;
     document.head.appendChild(style);
   }
 
   function buildUi() {
-    if (document.getElementById(ROOT_ID)) return;
-
     root = document.createElement("div");
     root.id = ROOT_ID;
     root.hidden = true;
 
-    timelinePanel = document.createElement("section");
-    timelinePanel.className = "mc-timeline";
-    timelinePanel.setAttribute("aria-label", "评论时间线");
-    timelinePanel.hidden = true;
-
-    const head = document.createElement("div");
-    head.className = "mc-timeline-head";
-
-    const title = document.createElement("div");
-    title.className = "mc-timeline-title";
-    title.textContent = "评论时间线";
-
-    countNode = document.createElement("span");
-    countNode.className = "mc-timeline-count";
-    countNode.textContent = "0";
-    title.appendChild(document.createTextNode(" "));
-    title.appendChild(countNode);
-
-    const toggle = document.createElement("button");
-    toggle.className = "mc-timeline-toggle";
-    toggle.type = "button";
-    toggle.title = "收起评论时间线";
-    toggle.setAttribute("aria-label", "收起评论时间线");
-    toggle.textContent = "×";
-    toggle.addEventListener("click", () => {
-      setTimelineCollapsed(true);
-    });
-
-    timelineList = document.createElement("div");
-    timelineList.className = "mc-timeline-list";
-
-    head.append(title, toggle);
-    timelinePanel.append(head, timelineList);
-
-    timelineButton = document.createElement("button");
-    timelineButton.className = "mc-tools-btn mc-timeline-trigger";
-    timelineButton.type = "button";
-    timelineButton.hidden = true;
-    timelineButton.title = "评论时间线";
-    timelineButton.setAttribute("aria-label", "展开评论时间线");
-    timelineButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13"></path><path d="M8 12h13"></path><path d="M8 18h13"></path><path d="M3 6h.01"></path><path d="M3 12h.01"></path><path d="M3 18h.01"></path></svg>';
-    timelineButton.addEventListener("click", () => {
-      setTimelineCollapsed(!collapsed);
-    });
-
-    bottomButton = document.createElement("button");
-    bottomButton.className = "mc-tools-btn mc-scroll-bottom-btn";
-    bottomButton.type = "button";
-    bottomButton.hidden = true;
-    bottomButton.title = "滚动到底部";
-    bottomButton.setAttribute("aria-label", "滚动到底部");
-    bottomButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"></path><path d="m19 12-7 7-7-7"></path></svg>';
-    bottomButton.addEventListener("click", scrollToBottom);
+    markHighlightLayer = document.createElement("div");
+    markHighlightLayer.className = "mc-mark-highlight-layer";
 
     markCardsLayer = document.createElement("div");
-    markCardsLayer.className = "mc-mark-cards";
-
-    markHighlightLayer = document.createElement("div");
-    markHighlightLayer.className = "mc-mark-highlights";
+    markCardsLayer.className = "mc-mark-cards-layer";
 
     selectionToolbar = document.createElement("div");
     selectionToolbar.id = "mc-selection-toolbar";
     selectionToolbar.hidden = true;
 
     selectionBtn = document.createElement("button");
+    selectionBtn.className = "mc-selection-btn";
     selectionBtn.type = "button";
-    selectionBtn.title = "标记选中文字";
-    selectionBtn.setAttribute("aria-label", "标记选中文字");
-    selectionBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>';
+    selectionBtn.title = "标记此段文本";
+    selectionBtn.setAttribute("aria-label", "标记此段文本");
+    selectionBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>';
     selectionBtn.addEventListener("mousedown", (event) => event.preventDefault());
     selectionBtn.addEventListener("click", openMarkPopover);
 
     choiceBtn = document.createElement("button");
+    choiceBtn.className = "mc-selection-btn";
     choiceBtn.type = "button";
-    choiceBtn.title = "选择这个方案";
-    choiceBtn.setAttribute("aria-label", "选择这个方案");
-    choiceBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.25"></circle><path d="m8.4 12.2 2.4 2.4 4.8-5.2"></path></svg>';
+    choiceBtn.title = "选择此方案";
+    choiceBtn.setAttribute("aria-label", "选择此方案");
+    choiceBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>';
     choiceBtn.addEventListener("mousedown", (event) => event.preventDefault());
     choiceBtn.addEventListener("click", commitChoiceMark);
 
@@ -787,10 +396,13 @@
     markPopover = document.createElement("div");
     markPopover.className = "mc-mark-popover";
     markPopover.hidden = true;
-    const quotePreview = document.createElement("blockquote");
+
+    const quotePreview = document.createElement("div");
     quotePreview.className = "mc-mark-quote-preview";
+
     markPopoverInput = document.createElement("textarea");
-    markPopoverInput.placeholder = "输入解释,⌘+回车发送标记…";
+    markPopoverInput.className = "mc-mark-input";
+    markPopoverInput.placeholder = "输入批注内容... (Cmd/Ctrl+Enter 提交)";
     markPopoverInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
         event.preventDefault();
@@ -812,22 +424,26 @@
     sendButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"></path><path d="M22 2 11 13"></path></svg>';
     sendButton.addEventListener("click", sendMarkComment);
 
+    bottomButton = document.createElement("button");
+    bottomButton.className = "mc-tools-btn mc-scroll-bottom-btn";
+    bottomButton.type = "button";
+    bottomButton.title = "滚动到底部";
+    bottomButton.setAttribute("aria-label", "滚动到底部");
+    bottomButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"></path><path d="m19 12-7 7-7-7"></path></svg>';
+    bottomButton.addEventListener("click", scrollToBottom);
+
     actionGroup = document.createElement("div");
     actionGroup.className = "mc-actions";
     actionGroup.setAttribute("aria-label", "评论工具");
-    actionGroup.append(sendButton, timelineButton, bottomButton);
+    actionGroup.append(sendButton, bottomButton);
 
     toastNode = document.createElement("div");
     toastNode.id = "mc-toast";
     toastNode.setAttribute("role", "status");
 
-    root.append(markHighlightLayer, timelinePanel, markCardsLayer, selectionToolbar, markPopover, actionGroup);
+    root.append(markHighlightLayer, markCardsLayer, selectionToolbar, markPopover, actionGroup);
     document.body.appendChild(root);
     document.body.appendChild(toastNode);
-
-    document.addEventListener("selectionchange", scheduleSelectionCheck);
-    document.addEventListener("scroll", schedulePositionMarkOverlays, { capture: true, passive: true });
-    window.addEventListener("resize", schedulePositionMarkOverlays, { passive: true });
   }
 
   function schedulePositionMarkOverlays() {
@@ -837,51 +453,6 @@
       overlayRaf = 0;
       positionMarkOverlays();
     });
-  }
-
-  function scheduleRescan() {
-    window.clearTimeout(rescanTimer);
-    rescanTimer = window.setTimeout(rescan, RESCAN_DELAY_MS);
-  }
-
-  function rescan() {
-    if (!timelineList) return;
-
-    if (!isMarkablePage()) {
-      resetIssueTools();
-      return;
-    }
-
-    if (root) root.hidden = false;
-
-    const pageKey = getIssueKeyFromUrl(location.href);
-    if (pageKey !== marksPageKey) {
-      marksPageKey = pageKey;
-      clearMarks();
-    }
-
-    const comments = getCommentEntries();
-
-    const hasComments = comments.length > 0;
-    timelineButton.hidden = !hasComments;
-    bottomButton.hidden = false;
-    sendButton.hidden = marks.length === 0;
-    timelinePanel.hidden = collapsed || !hasComments;
-    countNode.textContent = String(comments.length);
-    renderTimeline(comments);
-    positionMarkOverlays();
-  }
-
-  function resetIssueTools() {
-    if (root) root.hidden = true;
-    if (timelineButton) timelineButton.hidden = true;
-    if (bottomButton) bottomButton.hidden = true;
-    if (timelinePanel) timelinePanel.hidden = true;
-    if (timelineList) timelineList.replaceChildren();
-    if (countNode) countNode.textContent = "0";
-    lastTimelineSignature = "";
-    activeCommentId = "";
-    clearMarks();
   }
 
   function isMarkablePage() {
@@ -903,258 +474,14 @@
     }
   }
 
-  function setTimelineCollapsed(nextCollapsed) {
-    collapsed = nextCollapsed;
-
-    const hasComments = Number(countNode?.textContent || "0") > 0;
-    if (timelinePanel) timelinePanel.hidden = collapsed || !hasComments;
-    if (timelineButton) {
-      timelineButton.dataset.active = String(!collapsed && hasComments);
-      timelineButton.setAttribute("aria-label", collapsed ? "展开评论时间线" : "收起评论时间线");
-      timelineButton.title = collapsed ? "评论时间线" : "收起评论时间线";
-    }
-  }
-
-  function renderTimeline(comments) {
-    const signature = comments.map((c) => `${c.id}:${c.author}:${c.time}:${c.preview}`).join("|");
-    if (signature === lastTimelineSignature) {
-      updateActiveTimelineItem();
-      return;
-    }
-    lastTimelineSignature = signature;
-
-    const fragment = document.createDocumentFragment();
-
-    comments.forEach((comment, index) => {
-      const item = document.createElement("button");
-      item.className = "mc-timeline-item";
-      item.type = "button";
-      item.dataset.commentId = comment.id;
-      item.dataset.active = String(comment.id === activeCommentId);
-      item.title = [comment.author, comment.time, comment.preview].filter(Boolean).join(" · ");
-      item.setAttribute("aria-label", `定位到 ${comment.author || "评论"} ${comment.time || `#${index + 1}`}`);
-      item.addEventListener("click", () => focusComment(comment.id));
-
-      const dot = document.createElement("span");
-      dot.className = "mc-timeline-dot";
-      dot.setAttribute("aria-hidden", "true");
-
-      const body = document.createElement("span");
-
-      const meta = document.createElement("span");
-      meta.className = "mc-timeline-meta";
-
-      const actor = document.createElement("span");
-      actor.className = "mc-timeline-index";
-      actor.textContent = comment.author || `#${index + 1}`;
-
-      const time = document.createElement("span");
-      time.className = "mc-timeline-time";
-      time.textContent = comment.time || `#${index + 1}`;
-
-      const preview = document.createElement("span");
-      preview.className = "mc-timeline-preview";
-      preview.textContent = comment.preview || "无内容";
-
-      meta.append(actor, time);
-      body.append(meta, preview);
-      item.append(dot, body);
-      fragment.appendChild(item);
-    });
-
-    timelineList.replaceChildren(fragment);
-  }
-
-  function getCommentEntries() {
-    const rawNodes = Array.from(document.querySelectorAll(`[id^="${COMMENT_ID_PREFIX}"]`));
-    const validNodes = [];
-
-    for (let i = 0; i < rawNodes.length; i++) {
-      const node = rawNodes[i];
-      if (isValidCommentNode(node)) {
-        validNodes.push(node);
-      }
-    }
-
-    if (validNodes.length === 0) return [];
-
-    const measured = validNodes.map((node) => ({
-      node,
-      top: node.getBoundingClientRect().top,
-    }));
-
-    measured.sort((a, b) => {
-      const topDiff = a.top - b.top;
-      if (Math.abs(topDiff) > 1) return topDiff;
-      return a.node.compareDocumentPosition(b.node) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
-    });
-
-    return measured.map(({ node }) => {
-      const id = node.id.slice(COMMENT_ID_PREFIX.length);
-      return {
-        id,
-        node,
-        author: pickAuthor(node),
-        time: pickTime(node),
-        preview: pickPreview(node),
-      };
-    });
-  }
-
-  function isValidCommentNode(node) {
-    if (!(node instanceof HTMLElement)) return false;
-    if (!node.id || !node.id.startsWith(COMMENT_ID_PREFIX)) return false;
-    if (node.closest(`#${ROOT_ID}`)) return false;
-    if (!node.isConnected) return false;
-    if (node.offsetParent === null && getComputedStyle(node).position !== "fixed") return false;
-
-    const rect = node.getBoundingClientRect();
-    if (rect.width < 120 || rect.height < 24) return false;
-
-    const text = normalizeText(node.textContent);
-    if (!text || text.length < 2) return false;
-
-    return true;
-  }
-
-  function pickAuthor(node) {
-    const preferred = Array.from(
-      node.querySelectorAll('[class*="cursor-pointer"][class*="font-medium"], [class*="text-sm"][class*="font-medium"]')
-    )
-      .map((el) => normalizeText(el.textContent))
-      .find((text) => text && text.length <= 48 && !looksLikeTime(text) && !looksLikeAction(text));
-
-    if (preferred) return preferred;
-
-    const candidates = Array.from(node.querySelectorAll("span, button, a"))
-      .map((el) => normalizeText(el.textContent))
-      .filter((text) => text && text.length <= 48 && !looksLikeTime(text) && !looksLikeAction(text));
-
-    return candidates[0] || "";
-  }
-
-  function pickTime(node) {
-    const timeEl = node.querySelector("time[datetime]");
-    if (timeEl) {
-      return normalizeText(timeEl.textContent) || timeEl.getAttribute("datetime") || "";
-    }
-
-    const candidates = Array.from(node.querySelectorAll("span, div, button"))
-      .map((el) => normalizeText(el.textContent))
-      .filter((text) => text && text.length <= 64 && looksLikeTime(text));
-
-    return candidates[0] || "";
-  }
-
-  function pickPreview(node) {
-    const contentNode =
-      findCommentBodyNode(node) ||
-      node.querySelector("p");
-
-    const raw = normalizeText(contentNode?.textContent || node.textContent);
-    const withoutActions = raw
-      .replace(/\b(Copy|Edit|Delete|Resolve|Unresolve|Reply|Save|Cancel)\b/gi, " ")
-      .replace(/\b(复制|编辑|删除|回复|保存|取消|解决|取消解决)\b/g, " ");
-
-    return stripCommentChrome(withoutActions, pickAuthor(node), pickTime(node)).slice(0, 120);
-  }
-
-  function findCommentBodyNode(node) {
-    const candidates = Array.from(node.querySelectorAll('[class*="leading-relaxed"], [class*="prose"]')).filter(
-      (el) => {
-        const text = normalizeText(el.textContent);
-        if (!text || text.length < 2) return false;
-
-        const rect = el.getBoundingClientRect();
-        const nodeRect = node.getBoundingClientRect();
-        if (rect.top - nodeRect.top < 28) return false;
-
-        return !looksLikeHeaderText(text);
-      }
-    );
-
-    return candidates[0] || null;
-  }
-
-  function stripCommentChrome(text, author, time) {
-    let result = normalizeText(text);
-    for (const value of [author, time]) {
-      if (value) result = result.replace(new RegExp(`^${escapeRegExp(value)}\\s*`), "");
-    }
-    result = result.replace(/^#\d+\s*/, "");
-    return normalizeText(result);
-  }
-
-  function looksLikeHeaderText(text) {
-    const normalized = normalizeText(text);
-    return normalized.length <= 80 && looksLikeTime(normalized);
-  }
-
-  function escapeRegExp(text) {
-    return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  }
-
-  function focusComment(commentId) {
-    const node = document.getElementById(`${COMMENT_ID_PREFIX}${commentId}`);
-    if (!node) return;
-
-    activeCommentId = commentId;
-    updateActiveTimelineItem();
-
-    const scrollContainer = findScrollContainer(node);
-    scrollElementIntoContainer(node, scrollContainer);
-
-    node.classList.add("mc-comment-highlight");
-    window.setTimeout(() => {
-      node.classList.remove("mc-comment-highlight");
-    }, HIGHLIGHT_MS);
-  }
-
-  function updateActiveTimelineItem() {
-    if (!timelineList) return;
-
-    timelineList.querySelectorAll(".mc-timeline-item").forEach((item) => {
-      item.dataset.active = String(item.dataset.commentId === activeCommentId);
-    });
-  }
-
   function scrollToBottom() {
-    const comments = getCommentEntries();
-    const lastComment = comments.at(-1)?.node || null;
-    const container = lastComment ? findScrollContainer(lastComment) : findBestScrollable();
-
-    if (container && container !== document.scrollingElement && container !== document.documentElement) {
-      container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+    const scrollable = findBestScrollable();
+    if (scrollable && scrollable !== document.scrollingElement && scrollable !== document.documentElement) {
+      scrollable.scrollTo({ top: scrollable.scrollHeight, behavior: "smooth" });
       return;
     }
 
     window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" });
-  }
-
-  function scrollElementIntoContainer(node, container) {
-    if (!container || container === document.scrollingElement || container === document.documentElement) {
-      node.scrollIntoView({ behavior: "smooth", block: "center" });
-      return;
-    }
-
-    const containerRect = container.getBoundingClientRect();
-    const nodeRect = node.getBoundingClientRect();
-    const target =
-      container.scrollTop +
-      (nodeRect.top - containerRect.top) -
-      Math.max(0, (container.clientHeight - nodeRect.height) / 2);
-
-    container.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
-  }
-
-  function findScrollContainer(node) {
-    let current = node.parentElement;
-    while (current && current !== document.body) {
-      if (isScrollable(current)) return current;
-      current = current.parentElement;
-    }
-
-    return document.scrollingElement || document.documentElement;
   }
 
   function findBestScrollable() {
@@ -1175,18 +502,6 @@
     return String(text || "").replace(/\s+/g, " ").trim();
   }
 
-  function looksLikeTime(text) {
-    return /(^|\b)(just now|now|\d+\s*(m|min|mins|minute|minutes|h|hr|hour|hours|d|day|days|w|week|weeks|mo|month|months|y|yr|year|years)\b|today|yesterday|刚刚|\d+\s*(秒|分钟|小时|天|周|个月|年)前|今天|昨天|前天|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|\d{1,2}:\d{2}|\d{4}[-/]\d{1,2}[-/]\d{1,2})/i.test(
-      text
-    );
-  }
-
-  function looksLikeAction(text) {
-    return /^(copy|edit|delete|resolve|unresolve|reply|save|cancel|more|复制|编辑|删除|回复|保存|取消|更多|解决|取消解决)$/i.test(
-      text
-    );
-  }
-
   function hideSelectionButtons() {
     if (selectionToolbar) selectionToolbar.hidden = true;
     if (selectionBtn) selectionBtn.hidden = true;
@@ -1194,6 +509,11 @@
   }
 
   function scheduleSelectionCheck() {
+    const active = document.activeElement;
+    if (active && isEditableOrInput(active)) {
+      hideSelectionButtons();
+      return;
+    }
     const sel = document.getSelection();
     if (!sel || sel.isCollapsed) {
       hideSelectionButtons();
@@ -1208,7 +528,6 @@
     if (markPopover && !markPopover.hidden) return;
     if (!isMarkablePage()) {
       hideSelectionButtons();
-      if (selectionToolbar) selectionToolbar.hidden = true;
       return;
     }
 
@@ -1217,7 +536,6 @@
     lastSelection = pick;
     if (!pick) {
       hideSelectionButtons();
-      if (selectionToolbar) selectionToolbar.hidden = true;
       return;
     }
 
@@ -1225,9 +543,6 @@
     selectionBtn.hidden = false;
     choiceBtn.hidden = false;
     selectionToolbar.hidden = false;
-    // The pair is laid out as one unit: selection first, choice beside it.
-    // Clamping each button independently lets them collide when a full-line
-    // selection pushes both against the viewport edge.
     const top = `${Math.max(8, rect.top - 36)}px`;
     const selectionLeft = Math.max(8, Math.min(window.innerWidth - 38, rect.right - 15));
     selectionToolbar.style.left = `${selectionLeft}px`;
@@ -1245,8 +560,6 @@
     if (!holder) return null;
     if (isUiNode(holder) || !isMarkablePage()) return null;
     if (holder.closest("input, textarea")) return null;
-    // Real editors (comment composer) carry an empty-state placeholder;
-    // read-only ProseMirror previews don't — those stay markable.
     const editableRoot = holder.closest("[contenteditable]");
     if (editableRoot && editableRoot.querySelector(".is-editor-empty, [data-placeholder]")) return null;
 
@@ -1273,7 +586,6 @@
     markPopoverAnchor = selectionToolbar.getBoundingClientRect();
 
     if (!lastSelection) {
-      // The selection was cleared (e.g. by the button click); restore it.
       const selection = document.getSelection();
       const pick = pickSelectableRange(selection);
       if (!pick) {
@@ -1283,7 +595,6 @@
       lastSelection = pick;
     }
 
-    // Highlight immediately on click; the note is edited afterwards.
     const mark = createMark(lastSelection, "");
     lastSelection = null;
     if (!mark) return;
@@ -1298,8 +609,6 @@
     markPopoverInput.value = mark.note;
     markPopover.hidden = false;
     markPopoverPlaced = false;
-    // The selectionchange from clearing the selection arrives after this and
-    // updateSelectionButton bails while the popover is open, so hide now.
     hideSelectionButtons();
     positionMarkPopover();
     markPopoverInput.focus();
@@ -1311,10 +620,6 @@
     const rect = pendingMark.range.getBoundingClientRect();
 
     if (!markPopoverPlaced) {
-      // Placement is decided once at open time (toolbar anchor or centered
-      // above the highlight). Later calls only track the highlight with the
-      // recorded offset, so scrolling keeps the popover glued to its text
-      // instead of re-deciding the layout mid-edit.
       const width = markPopover.offsetWidth;
       const height = markPopover.offsetHeight;
       let left;
@@ -1346,259 +651,205 @@
 
   function cancelPendingMark() {
     if (!pendingMark) return;
-    // A never-noted mark is discarded; an existing one only closes the editor.
     if (!pendingMark.note) removeMark(pendingMark);
     pendingMark = null;
-    markPopoverAnchor = null;
     markPopover.hidden = true;
-    hideSelectionButtons();
+    markPopoverInput.value = "";
+    markPopoverAnchor = null;
+    markPopoverPlaced = false;
+    if (sendButton) sendButton.hidden = marks.length === 0;
   }
 
   function commitPendingMark() {
     if (!pendingMark) return;
     const note = markPopoverInput.value.trim();
     if (!note) {
-      // Empty note deletes the highlight instead of keeping a bare mark.
-      cancelPendingMark();
-      return;
+      removeMark(pendingMark);
+    } else {
+      pendingMark.note = note;
+      renderMarkCards();
     }
-
-    pendingMark.note = note;
-    renderMarkCard(pendingMark);
     pendingMark = null;
-    markPopoverAnchor = null;
     markPopover.hidden = true;
-    hideSelectionButtons();
-    positionMarkCards();
+    markPopoverInput.value = "";
+    markPopoverAnchor = null;
+    markPopoverPlaced = false;
+    if (sendButton) sendButton.hidden = marks.length === 0;
   }
 
   function commitChoiceMark() {
-    if (pendingMark) return;
     if (!lastSelection) {
       const selection = document.getSelection();
       const pick = pickSelectableRange(selection);
-      if (!pick) {
-        hideSelectionButtons();
-        return;
-      }
+      if (!pick) return;
       lastSelection = pick;
     }
 
     const mark = createMark(lastSelection, CHOICE_NOTE, true);
     lastSelection = null;
-    if (!mark) return;
     document.getSelection()?.removeAllRanges();
     hideSelectionButtons();
-    renderMarkCard(mark);
+
+    if (mark) {
+      renderMarkCards();
+      if (sendButton) sendButton.hidden = false;
+      showToast("已添加方案选择标记");
+    }
   }
 
   function removeMark(mark) {
+    mark.range?.detach?.();
     mark.card?.remove();
-    mark.range = null;
-    mark.anchor = null;
-    const index = marks.indexOf(mark);
-    if (index >= 0) marks.splice(index, 1);
+    marks = marks.filter((m) => m.id !== mark.id);
     if (sendButton) sendButton.hidden = marks.length === 0;
+    renderMarkCards();
     renderMarkHighlights();
   }
 
   function createMark(pick, note, choice = false) {
-    const range = pick.range;
-    if (
-      !(range.startContainer instanceof Node) || !range.startContainer.isConnected ||
-      !(range.endContainer instanceof Node) || !range.endContainer.isConnected
-    ) {
-      showToast("页面内容已变化,标记失败");
-      return null;
-    }
-
     markSeq += 1;
+    const id = `mark-${markSeq}-${Date.now()}`;
+    const anchor = buildAnchor(pick.range, pick.text);
     const mark = {
-      id: `mc-mark-${markSeq}`,
+      id,
       note,
       quote: pick.text,
-      // The live range plus a text anchor so the highlight can be relocated
-      // after React remounts the surrounding DOM.
-      range,
-      anchor: buildAnchor(range, pick.text),
       choice,
+      range: pick.range.cloneRange(),
+      anchor,
     };
     marks.push(mark);
-    if (sendButton) sendButton.hidden = false;
     renderMarkHighlights();
-
     return mark;
   }
 
-  // Highlight anchoring: remember the container element (by a stable selector
-  // chain), the quote text, and the quote's start offset in the container's
-  // text content. After a remount the quote is searched again to rebuild the
-  // range — robust as long as the text itself survives.
   function buildAnchor(range, quote) {
-    const container = range.commonAncestorContainer;
-    const holder = container.nodeType === Node.TEXT_NODE ? container.parentElement : container;
-    if (!(holder instanceof Element)) return null;
-    const scope = holder.closest("[id]") || holder.closest("main, article") || document.body;
-    const scopeText = scope.textContent || "";
-    const offset = scopeText.indexOf(quote);
+    const root = nodeAsElement(range.commonAncestorContainer) || document.body;
+    const path = [];
+    let cur = root;
+    while (cur && cur !== document.body) {
+      path.unshift(cssSelectorFor(cur));
+      cur = cur.parentElement;
+    }
     return {
-      scopeSelector: cssSelectorFor(scope),
+      path: path.join(" > "),
       quote,
-      offset: offset >= 0 ? offset : -1,
     };
   }
 
   function cssSelectorFor(el) {
-    if (!(el instanceof Element)) return "body";
-    const parts = [];
-    let node = el;
-    while (node instanceof Element && node !== document.body) {
-      let selector = node.tagName.toLowerCase();
-      if (node.id) {
-        parts.unshift(`${selector}#${CSS.escape(node.id)}`);
-        break;
-      }
-      const parent = node.parentElement;
-      if (parent) {
-        const sameTag = Array.from(parent.children).filter((c) => c.tagName === node.tagName);
-        if (sameTag.length > 1) selector += `:nth-of-type(${sameTag.indexOf(node) + 1})`;
-      }
-      parts.unshift(selector);
-      node = node.parentElement;
+    if (el.id) return `#${CSS.escape(el.id)}`;
+    let sel = el.localName || "";
+    if (el.className && typeof el.className === "string") {
+      const classes = el.className.split(/\s+/).filter(Boolean);
+      if (classes.length) sel += `.${classes.map((c) => CSS.escape(c)).join(".")}`;
     }
-    return parts.join(" > ") || "body";
+    return sel;
   }
 
-  // Rebuild a mark's range from its anchor after the DOM was remounted.
   function relocateMark(mark) {
-    if (!mark.anchor || mark.anchor.offset < 0) return false;
-    const scope = document.querySelector(mark.anchor.scopeSelector) || document.body;
-    const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
-    let text = "";
-    const stops = [];
-    let node;
-    while ((node = walker.nextNode())) {
-      stops.push({ node, start: text.length });
-      text += node.textContent || "";
-    }
-    const start = text.indexOf(mark.anchor.quote, Math.max(0, mark.anchor.offset - 40));
-    if (start < 0) return false;
-    let end = start + mark.anchor.quote.length;
-    const startStop = stops.filter((s) => s.start <= start).pop();
-    const endStop = stops.filter((s) => s.start < end).pop();
-    if (!startStop || !endStop) return false;
+    if (mark.range?.startContainer.isConnected) return;
     try {
-      const range = document.createRange();
-      range.setStart(startStop.node, start - startStop.start);
-      range.setEnd(endStop.node, end - endStop.start);
-      mark.range = range;
-      return true;
-    } catch (_error) {
-      return false;
-    }
+      const root = mark.anchor?.path ? document.querySelector(mark.anchor.path) : null;
+      if (!root) return;
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      let textNode;
+      while ((textNode = walker.nextNode())) {
+        const text = textNode.textContent || "";
+        const idx = text.indexOf(mark.quote);
+        if (idx !== -1) {
+          const r = document.createRange();
+          r.setStart(textNode, idx);
+          r.setEnd(textNode, idx + mark.quote.length);
+          mark.range = r;
+          return;
+        }
+      }
+    } catch (_err) {}
   }
 
-  // Paint marks as absolutely-positioned translucent boxes over the live
-  // range rects (the PDF text-layer technique). This replaced a CSS Custom
-  // Highlight API implementation whose ::highlight() paint lingered after
-  // removal — WKWebView only repainted when an unrelated update touched the
-  // area. Boxes live in our own layer: add/remove is deterministic and the
-  // page DOM is never mutated, so React remounts cannot destroy the paint;
-  // disconnected ranges are rebuilt from the stored text anchor.
   function renderMarkHighlights() {
     if (!markHighlightLayer) return;
-    const boxes = [];
-    for (const mark of marks) {
-      if (!mark.range || !mark.range.startContainer.isConnected) {
-        if (!relocateMark(mark)) continue;
-      }
-      for (const rect of mark.range.getClientRects()) {
-        if (rect.width < 1 || rect.height < 1) continue;
-        const box = document.createElement("div");
-        box.className = "mc-mark-highlight";
-        if (mark.choice) box.dataset.choice = "true";
-        box.style.left = `${rect.left}px`;
-        box.style.top = `${rect.top}px`;
-        box.style.width = `${rect.width}px`;
-        box.style.height = `${rect.height}px`;
-        boxes.push(box);
-      }
-    }
-    markHighlightLayer.replaceChildren(...boxes);
+    markHighlightLayer.replaceChildren();
+
+    marks.forEach((mark) => {
+      relocateMark(mark);
+      if (!mark.range?.startContainer.isConnected) return;
+      const rects = Array.from(mark.range.getClientRects());
+      rects.forEach((rect) => {
+        if (rect.width === 0 || rect.height === 0) return;
+        const hl = document.createElement("div");
+        hl.className = "mc-mark-highlight";
+        hl.dataset.choice = String(mark.choice);
+        hl.style.left = `${rect.left}px`;
+        hl.style.top = `${rect.top}px`;
+        hl.style.width = `${rect.width}px`;
+        hl.style.height = `${rect.height}px`;
+        markHighlightLayer.appendChild(hl);
+      });
+    });
   }
 
-  function renderMarkCard(mark) {
+  function renderMarkCards() {
     if (!markCardsLayer) return;
-    // Re-committing an edited mark replaces its card instead of stacking one.
-    mark.card?.remove();
+    markCardsLayer.replaceChildren();
 
-    const card = document.createElement("div");
-    card.className = "mc-mark-card";
-    card.dataset.markId = mark.id;
+    marks.forEach((mark) => {
+      if (!mark.note) return;
+      relocateMark(mark);
+      if (!mark.range?.startContainer.isConnected) return;
 
-    const note = document.createElement("div");
-    note.className = "mc-mark-card-note";
-    note.textContent = mark.note;
-    note.title = mark.note;
+      const card = document.createElement("div");
+      card.className = "mc-mark-card";
+      card.dataset.markId = mark.id;
 
-    const actions = document.createElement("div");
-    actions.className = "mc-mark-card-actions";
-    actions.append(createCardAction("edit", mark), createCardAction("delete", mark));
+      const note = document.createElement("div");
+      note.className = "mc-mark-card-note";
+      note.textContent = mark.note;
 
-    card.append(note, actions);
-    markCardsLayer.appendChild(card);
-    mark.card = card;
-    positionMarkCards();
-  }
+      const actions = document.createElement("div");
+      actions.className = "mc-mark-card-actions";
 
-  function createCardAction(action, mark) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = `mc-mark-card-btn mc-mark-card-${action}`;
-    const label = action === "edit" ? "编辑标记" : "删除标记";
-    button.title = label;
-    button.setAttribute("aria-label", label);
-    button.innerHTML =
-      action === "edit"
-        ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>'
-        : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"></path><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path></svg>';
-    button.addEventListener("click", (event) => {
-      event.stopPropagation();
-      if (action === "edit") {
-        if (pendingMark && pendingMark !== mark) cancelPendingMark();
-        markPopoverAnchor = null;
+      const editBtn = document.createElement("button");
+      editBtn.className = "mc-mark-card-btn";
+      editBtn.textContent = "编辑";
+      editBtn.addEventListener("click", () => {
         pendingMark = mark;
         openMarkEditor(mark);
-      } else {
-        removeMark(mark);
-      }
-    });
-    return button;
-  }
+      });
 
-  function positionMarkOverlays() {
-    if (marks.length === 0 && (!pendingMark || markPopover?.hidden)) {
-      return;
-    }
-    if (markPopover && !markPopover.hidden && pendingMark) {
-      positionMarkPopover();
-    }
+      const delBtn = document.createElement("button");
+      delBtn.className = "mc-mark-card-btn mc-mark-card-del";
+      delBtn.textContent = "删除";
+      delBtn.addEventListener("click", () => removeMark(mark));
+
+      actions.append(editBtn, delBtn);
+      card.append(note, actions);
+      markCardsLayer.appendChild(card);
+      mark.card = card;
+    });
+
     positionMarkCards();
-    renderMarkHighlights();
   }
 
   function positionMarkCards() {
-    if (!markCardsLayer || marks.length === 0) return;
-    for (const mark of marks) {
-      if (!mark.card) continue;
-      const alive = mark.range?.startContainer.isConnected || relocateMark(mark);
-      mark.card.hidden = !alive;
-      if (!alive) continue;
+    marks.forEach((mark) => {
+      if (!mark.card || !mark.range?.startContainer.isConnected) return;
       const rect = mark.range.getBoundingClientRect();
-      mark.card.style.left = `${Math.round(
-        Math.max(8, Math.min(window.innerWidth - 208, rect.left + rect.width / 2 - 100))
-      )}px`;
-      mark.card.style.top = `${Math.round(Math.max(8, rect.top - mark.card.offsetHeight - 8))}px`;
+      const card = mark.card;
+      const width = card.offsetWidth || 220;
+      const left = Math.max(8, Math.min(window.innerWidth - width - 8, rect.right + 12));
+      const top = Math.max(8, rect.top);
+      card.style.left = `${left}px`;
+      card.style.top = `${top}px`;
+    });
+  }
+
+  function positionMarkOverlays() {
+    renderMarkHighlights();
+    positionMarkCards();
+    if (pendingMark && !markPopover.hidden) {
+      positionMarkPopover();
     }
   }
 
@@ -1624,8 +875,6 @@
     renderMarkHighlights();
   }
 
-  // Quote lines get "> "; the reply is plain text. Multiple question-answer pairs
-  // are separated by blank lines so they are clearly visually distinguished.
   function buildMarkComment(entries) {
     return entries
       .map((entry) => {
@@ -1642,116 +891,67 @@
     return buildMarkComment(marks);
   }
 
-  function isChatPage() {
-    return /\/chat(\/|$)/.test(location.pathname);
-  }
-
-  const issueUuidCache = new Map();
-
-  // The comments API takes the issue UUID. The URL may carry the UUID directly
-  // (e.g. /issues/<uuid> or ?issue=<uuid>) or a human key (e.g. SCI-657).
-  // If only the human key is available, query /api/issues/<key> to get the UUID.
-  async function findIssueUuid() {
-    const fromUrl =
-      location.pathname.match(/\/issues\/([0-9a-f-]{36})/i)?.[1] ||
-      new URLSearchParams(location.search).get("issue")?.match(/^[0-9a-f-]{36}$/i)?.[0];
-    if (fromUrl) return fromUrl;
-
-    const identifier =
-      new URLSearchParams(location.search).get("issue")?.trim() ||
-      location.pathname.match(/\/issues\/([^/?#]+)/)?.[1]?.trim() ||
-      "";
-    if (!identifier) return "";
-
-    if (issueUuidCache.has(identifier)) return issueUuidCache.get(identifier);
-
-    try {
-      const response = await fetch(`https://api.multica.ai/api/issues/${encodeURIComponent(identifier)}`, {
-        method: "GET",
-        credentials: "include",
-        headers: buildCommentHeaders(),
-      });
-      if (response.ok) {
-        const data = await response.json();
-        const uuid = data?.id || data?.data?.id || data?.issue?.id || "";
-        if (uuid) {
-          issueUuidCache.set(identifier, uuid);
-          return uuid;
-        }
-      }
-    } catch (_error) {
-      // Fall through on network or parse error
-    }
-    return "";
-  }
-
-  // Chat pages send through the session messages API instead.
-  function findChatSessionId() {
-    if (!isChatPage()) return "";
-    const fromUrl = new URLSearchParams(location.search).get("session");
-    if (fromUrl && /^[0-9a-f-]{36}$/i.test(fromUrl)) return fromUrl;
-    return "";
-  }
-
-  // The API needs the CSRF token from the multica_csrf cookie plus the client
-  // headers the web app sends. The token must be sliced by the cookie name's
-  // exact length — off by one and the server answers 403 CSRF validation.
-  function buildCommentHeaders() {
-    const row = document.cookie.split("; ").find((r) => r.startsWith("multica_csrf="));
-    const csrf = row ? row.slice("multica_csrf=".length) : "";
-    const headers = {
-      "Content-Type": "application/json",
-      "X-Client-OS": "macos",
-      "X-Client-Platform": "web",
-      "X-Request-ID": Math.random().toString(16).slice(2, 10),
-    };
-    if (csrf) headers["X-CSRF-Token"] = csrf;
-    const workspaceSlug = location.pathname.split("/")[1];
-    if (workspaceSlug) headers["X-Workspace-Slug"] = workspaceSlug;
-    return headers;
-  }
-
   async function sendMarkComment() {
     if (marks.length === 0) return;
 
-    const content = buildMarkCommentMarkdown();
-    const isChat = isChatPage();
-    let url;
-    let body;
-    if (isChat) {
-      const chatSessionId = findChatSessionId();
-      if (!chatSessionId) {
-        showToast("发送失败: 未找到 Chat 会话 ID");
-        return;
-      }
-      url = `https://api.multica.ai/api/chat/sessions/${chatSessionId}/messages`;
-      body = { content };
-    } else {
-      const issueId = await findIssueUuid();
-      if (!issueId) {
-        showToast("发送失败: 未找到任务 ID");
-        return;
-      }
-      url = `https://api.multica.ai/api/issues/${issueId}/comments`;
-      body = { content, type: "comment" };
+    const issueKey = getIssueKeyFromUrl(location.href);
+    if (!issueKey) {
+      showToast("未检测到当前 Issue");
+      return;
     }
 
+    const content = buildMarkCommentMarkdown();
+    if (!content) return;
+
+    sendButton.disabled = true;
+    showToast("正在发送评论...");
+
     try {
+      const isChat = issueKey.startsWith("chat:");
+      const sessionId = isChat ? issueKey.slice(5) : null;
+      const csrfToken = getCsrfToken();
+      const workspaceSlug = getWorkspaceSlug();
+
+      const url = isChat
+        ? `/api/workspaces/${workspaceSlug}/chat/${sessionId}/messages`
+        : `/api/workspaces/${workspaceSlug}/issues/${issueKey}/comments`;
+
       const response = await fetch(url, {
         method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
+        },
         credentials: "include",
-        headers: buildCommentHeaders(),
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          content,
+          body: content,
+          text: content,
+        }),
       });
+
       if (!response.ok) {
-        showToast(`发送失败 (HTTP ${response.status})`);
-        return;
+        throw new Error(`HTTP ${response.status}`);
       }
-      showToast(isChat ? "消息已发送" : "评论已发送");
+
+      showToast("评论发送成功！");
       clearMarks();
-    } catch (_error) {
-      showToast("发送失败,请检查网络");
+    } catch (err) {
+      showToast(`发送失败: ${err.message || "网络错误"}`);
+    } finally {
+      sendButton.disabled = false;
     }
+  }
+
+  function getCsrfToken() {
+    const match = document.cookie.match(/(?:^|;\s*)(?:csrf_token|XSRF-TOKEN|csrfToken)=([^;]+)/);
+    return match ? decodeURIComponent(match[1]) : "";
+  }
+
+  function getWorkspaceSlug() {
+    const path = location.pathname;
+    const parts = path.split("/").filter(Boolean);
+    return parts[0] || "default";
   }
 
   if (document.readyState === "loading") {

@@ -20,8 +20,8 @@
     "./multica-workspace-title.user.js",
     "./arc-window-preview.user.js"
   ],
-  "appVersion": "0.1.26",
-  "targets": "app",
+  "appVersion": "0.1.27",
+  "targets": "dmg",
   "keepBinary": false,
   "install": false
 }
