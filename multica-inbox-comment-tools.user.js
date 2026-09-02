@@ -199,9 +199,10 @@
       #mc-selection-toolbar {
         position: fixed;
         z-index: 100;
+        height: 38px;
         display: flex;
         align-items: center;
-        gap: 1px;
+        gap: 2px;
         padding: 4px;
         border-radius: 10px;
         background: #262628;
@@ -215,13 +216,13 @@
       }
 
       #mc-selection-toolbar button {
-        width: 28px;
-        height: 28px;
+        width: 30px;
+        height: 30px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
         border: 0;
-        border-radius: 8px;
+        border-radius: 6px;
         background: transparent;
         color: #fafafa;
         cursor: pointer;
@@ -230,12 +231,12 @@
       }
 
       #mc-selection-toolbar button:hover {
-        background: rgb(250 250 250 / 0.1);
+        background: rgb(250 250 250 / 0.12);
       }
 
       #mc-selection-toolbar button svg {
-        width: 14px;
-        height: 14px;
+        width: 16px;
+        height: 16px;
         stroke: currentColor;
         stroke-width: 2;
         fill: none;
@@ -316,72 +317,61 @@
       .mc-mark-card {
         position: absolute;
         pointer-events: auto;
-        width: 200px;
-        padding: 6px 8px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 90px;
+        max-width: 260px;
+        height: 28px;
+        padding: 0 6px 0 8px;
         border: 1px solid #3f3f46;
-        border-radius: 8px;
+        border-radius: 6px;
         background: #18181B;
         color: #f4f4f5;
         font-size: 11px;
-        line-height: 16px;
-        box-shadow: 0 10px 30px rgb(15 23 42 / 0.2);
+        box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
         cursor: default;
       }
 
       .mc-mark-card .mc-mark-card-note {
+        flex: 1 1 auto;
+        min-width: 0;
+        white-space: nowrap;
         overflow: hidden;
-        display: -webkit-box;
-        -webkit-line-clamp: 3;
-        -webkit-box-orient: vertical;
-        word-break: break-word;
+        text-overflow: ellipsis;
+        line-height: 26px;
       }
 
       .mc-mark-card-actions {
-        position: absolute;
-        right: -6px;
-        top: -12px;
-        display: flex;
+        flex-shrink: 0;
+        display: inline-flex;
         align-items: center;
-        gap: 3px;
-        padding: 2px;
-        border-radius: 6px;
-        background: #18181B;
-        border: 1px solid #3f3f46;
-        box-shadow: 0 4px 12px rgb(0 0 0 / 0.3);
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 120ms ease;
-        z-index: 10;
-      }
-
-      .mc-mark-card:hover .mc-mark-card-actions,
-      .mc-mark-card:focus-within .mc-mark-card-actions {
-        opacity: 1;
-        pointer-events: auto;
+        gap: 2px;
       }
 
       .mc-mark-card-btn {
-        width: 20px;
-        height: 20px;
+        width: 18px;
+        height: 18px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
         border: 0;
         border-radius: 4px;
-        background: #27272a;
-        color: #e4e4e7;
+        background: transparent;
+        color: #a1a1aa;
         cursor: pointer;
         padding: 0;
+        transition: background 120ms ease, color 120ms ease;
       }
 
       .mc-mark-card-btn:hover {
-        background: #3f3f46;
+        background: #27272a;
         color: #ffffff;
       }
 
       .mc-mark-card-btn svg {
-        width: 11px;
-        height: 11px;
+        width: 12px;
+        height: 12px;
         stroke: currentColor;
         stroke-width: 2;
         fill: none;
@@ -432,7 +422,7 @@
     selectionBtn.type = "button";
     selectionBtn.title = "标记此段文本";
     selectionBtn.setAttribute("aria-label", "标记此段文本");
-    selectionBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>';
+    selectionBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 11-6 6v3h9l3-3"></path><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"></path></svg>';
     selectionBtn.addEventListener("mousedown", (event) => event.preventDefault());
     selectionBtn.addEventListener("click", openMarkPopover);
 
@@ -441,7 +431,7 @@
     choiceBtn.type = "button";
     choiceBtn.title = "选择此方案";
     choiceBtn.setAttribute("aria-label", "选择此方案");
-    choiceBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+    choiceBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"></path><path d="m9 12 2 2 4-4"></path></svg>';
     choiceBtn.addEventListener("mousedown", (event) => event.preventDefault());
     choiceBtn.addEventListener("click", commitChoiceMark);
 
@@ -599,12 +589,12 @@
     choiceBtn.hidden = false;
     selectionToolbar.hidden = false;
 
-    // Center toolbar horizontally directly above the selection
-    const toolbarWidth = selectionToolbar.offsetWidth || 66;
-    const toolbarHeight = selectionToolbar.offsetHeight || 36;
+    // Center toolbar horizontally directly above the selection (gap 6px)
+    const toolbarWidth = selectionToolbar.offsetWidth || 72;
+    const toolbarHeight = 38;
     const centerX = (rect.left + rect.right) / 2;
     const left = Math.max(8, Math.min(window.innerWidth - toolbarWidth - 8, centerX - toolbarWidth / 2));
-    const top = Math.max(8, rect.top - toolbarHeight - 8);
+    const top = Math.max(8, rect.top - toolbarHeight - 6);
 
     selectionToolbar.style.left = `${Math.round(left)}px`;
     selectionToolbar.style.top = `${Math.round(top)}px`;
@@ -908,10 +898,12 @@
       mark.card.hidden = !alive;
       if (!alive) continue;
       const rect = mark.range.getBoundingClientRect();
+      const cardWidth = mark.card.offsetWidth || 180;
+      const cardHeight = mark.card.offsetHeight || 28;
       mark.card.style.left = `${Math.round(
-        Math.max(8, Math.min(window.innerWidth - 208, rect.left + rect.width / 2 - 100))
+        Math.max(8, Math.min(window.innerWidth - cardWidth - 8, rect.left + rect.width / 2 - cardWidth / 2))
       )}px`;
-      mark.card.style.top = `${Math.round(Math.max(8, rect.top - mark.card.offsetHeight - 8))}px`;
+      mark.card.style.top = `${Math.round(Math.max(8, rect.top - cardHeight - 6))}px`;
     }
   }
 

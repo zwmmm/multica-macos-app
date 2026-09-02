@@ -1,7 +1,7 @@
 {
   "name": "multica-macos-app",
   "private": true,
-  "version": "0.1.28",
+  "version": "0.1.29",
   "description": "Multica macOS app packaged with Pake",
   "scripts": {
     "test": "node --test test/*.test.js",
