@@ -195,19 +195,19 @@
         transform: translateX(-50%) translateY(0);
       }
 
-      /* Selection toolbar mirroring the native Multica bubble menu */
+      /* Selection toolbar mirroring the native compact bubble menu */
       #mc-selection-toolbar {
         position: fixed;
         z-index: 100;
-        height: 38px;
+        height: 28px;
         display: flex;
         align-items: center;
         gap: 2px;
-        padding: 4px;
-        border-radius: 10px;
-        background: #262628;
-        border: 1px solid rgb(250 250 250 / 0.1);
-        box-shadow: 0 4px 12px rgb(0 0 0 / 0.12), 0 0 0 1px rgb(0 0 0 / 0.04);
+        padding: 2px;
+        border-radius: 7px;
+        background: #232326;
+        border: 1px solid rgb(250 250 250 / 0.12);
+        box-shadow: 0 4px 14px rgb(0 0 0 / 0.35), 0 0 0 1px rgb(0 0 0 / 0.1);
         pointer-events: auto;
       }
 
@@ -216,29 +216,30 @@
       }
 
       #mc-selection-toolbar button {
-        width: 30px;
-        height: 30px;
+        width: 24px;
+        height: 24px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
         border: 0;
-        border-radius: 6px;
+        border-radius: 5px;
         background: transparent;
-        color: #fafafa;
+        color: #e4e4e7;
         cursor: pointer;
         padding: 0;
-        transition: background 120ms ease;
+        transition: background 120ms ease, color 120ms ease;
       }
 
       #mc-selection-toolbar button:hover {
         background: rgb(250 250 250 / 0.12);
+        color: #ffffff;
       }
 
       #mc-selection-toolbar button svg {
-        width: 16px;
-        height: 16px;
+        width: 14px;
+        height: 14px;
         stroke: currentColor;
-        stroke-width: 2;
+        stroke-width: 1.8;
         fill: none;
         stroke-linecap: round;
         stroke-linejoin: round;
@@ -590,8 +591,8 @@
     selectionToolbar.hidden = false;
 
     // Center toolbar horizontally directly above the selection (gap 6px)
-    const toolbarWidth = selectionToolbar.offsetWidth || 72;
-    const toolbarHeight = 38;
+    const toolbarWidth = selectionToolbar.offsetWidth || 56;
+    const toolbarHeight = selectionToolbar.offsetHeight || 28;
     const centerX = (rect.left + rect.right) / 2;
     const left = Math.max(8, Math.min(window.innerWidth - toolbarWidth - 8, centerX - toolbarWidth / 2));
     const top = Math.max(8, rect.top - toolbarHeight - 6);
